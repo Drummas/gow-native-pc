@@ -385,6 +385,9 @@ ApplicationWindow {
             gsEstadisticas: ajustes.gsEstadisticas, gsPerfilGpu: ajustes.gsPerfilGpu,
             fpsLimite: ajustes.fpsLimite, vsync: ajustes.vsync, mostrarFps: ajustes.mostrarFps,
             elf: elegido.elf, iso: "", ejecutable: elegido.runner,
+            // The installation root: paths inside it are recorded relative to the runner in gow-native.boot (patch 25
+            // resolves them there), so a copied or moved installation keeps its card, saves and texture pack.
+            raiz: installer.repoRoot,
             // new VU1 microcode met while playing is recorded; the Install tab compiles it ("Speed up visited areas")
             // Isolated regional builds use JIT and have no launcher AOT rebuild stage.
             capturaVu1: elegido.regional ? "" : installer.repoRoot + "/data/" + installer.gameId + "/vu1_capture",

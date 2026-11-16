@@ -38,6 +38,14 @@ inline bool samePath(const QString &a, const QString &b)
         QDir::cleanPath(QDir::fromNativeSeparators(b)), sensitivity) == 0;
 }
 
+// Records store a path inside the project relative to the project root (the registration list, languages.json, the
+// build root): resolve it against the root this reader was given. A path outside the project stays absolute.
+inline QString resolveRecord(const QString &root, const QString &value)
+{
+    if (value.isEmpty() || QDir::isAbsolutePath(value)) return value;
+    return QDir::cleanPath(root + '/' + value);
+}
+
 inline QString sha256(const QString &path)
 {
     // Hash binaries once per observed version, not every time the window regains focus.
@@ -92,7 +100,8 @@ inline QVariantList read(const QString &root, const QString &game = QStringLiter
     QFile file(root + "/data/" + game + "/regional-builds.json");
     if (!file.open(QIODevice::ReadOnly)) return out;
     const auto manifest = QJsonDocument::fromJson(file.readAll()).object();
-    if (manifest.value("schema").toInt() != 1 || !samePath(manifest.value("owner").toString(), root)
+    if (manifest.value("schema").toInt() != 1
+        || !samePath(resolveRecord(root, manifest.value("owner").toString()), root)
         || manifest.value("profile_sha256").toString() != sha256(root + "/games/" + game + "/game.toml"))
     {
         reportExcluded(root, game, QStringLiteral("Regional builds were ignored: the registration list does not belong "
@@ -104,9 +113,9 @@ inline QVariantList read(const QString &root, const QString &game = QStringLiter
     for (const auto &value : manifest.value("builds").toArray()) {
         const auto row = value.toObject();
         const auto region = row.value("region").toString();
-        const auto runner = row.value("runner").toString();
-        const auto elf = row.value("elf").toString();
-        const auto data = row.value("dataDir").toString();
+        const auto runner = resolveRecord(root, row.value("runner").toString());
+        const auto elf = resolveRecord(root, row.value("elf").toString());
+        const auto data = resolveRecord(root, row.value("dataDir").toString());
         bool frameOk = false;
         const auto frame = row.value("framePc").toString().toUInt(&frameOk, 0);
         const auto exclude = [&](const QString &reason)
@@ -117,7 +126,7 @@ inline QVariantList read(const QString &root, const QString &game = QStringLiter
         };
         if (region.isEmpty()) { exclude(QStringLiteral("the entry has no region id")); continue; }
         if (regions.contains(region)) { exclude(QStringLiteral("duplicate registration for this region")); continue; }
-        if (!QDir::isAbsolutePath(runner) || !QDir::isAbsolutePath(elf) || !QDir::isAbsolutePath(data)
+        if (runner.isEmpty() || elf.isEmpty() || data.isEmpty()
             || !frameOk || frame < 0x100000 || frame >= 0x2000000 || frame % 4
             || row.value("runner_sha256").toString().size() != 64
             || row.value("elf_sha256").toString().size() != 64)
@@ -143,7 +152,7 @@ inline QVariantList read(const QString &root, const QString &game = QStringLiter
             const QByteArray prefix("CMAKE_HOME_DIRECTORY:INTERNAL=");
             if (line.startsWith(prefix)) source = QString::fromUtf8(line.mid(prefix.size()));
         }
-        if (!samePath(source, row.value("source").toString()))
+        if (!samePath(source, resolveRecord(root, row.value("source").toString())))
         {
             exclude(QStringLiteral("the build directory does not belong to this checkout"));
             continue;
@@ -154,6 +163,11 @@ inline QVariantList read(const QString &root, const QString &game = QStringLiter
             continue;
         }
         auto entry = row.toVariantMap();
+        // Consumers get absolute paths: the record is portable, the code that runs the build is not.
+        entry.insert("runner", runner);
+        entry.insert("elf", elf);
+        entry.insert("dataDir", data);
+        entry.insert("source", resolveRecord(root, row.value("source").toString()));
         entry.insert("language", "region:" + region);
         entry.insert("regional", true);
         entry.insert("card", data + "/Mcd001.ps2");
@@ -168,7 +182,7 @@ inline QVariantMap forElf(const QString &elf)
 {
     for (const auto &entry : read(repositoryRoot())) {
         const auto row = entry.toMap();
-        if (samePath(row.value("elf").toString(), elf)) return row;
+        if (samePath(resolveRecord(repositoryRoot(), row.value("elf").toString()), elf)) return row;
     }
     return {};
 }

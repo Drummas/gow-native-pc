@@ -17,8 +17,10 @@ import time
 import tomllib
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # records.py, also when loaded by path from a test
 sys.path.insert(0, str(ROOT / 'tools/disc'))
 from discfs import text_sha1  # noqa: E402
+from records import portable, resolve  # noqa: E402
 
 
 def digest(path):
@@ -130,9 +132,8 @@ def generate(root, game, build, codegen, force=False):
     runtime = root / 'engine/runtime'
     folder = data / 'recomp'
     folder.mkdir(parents=True, exist_ok=True)
-    elf = Path(read_json(data / 'languages.json')['recompile_elf'])
-    # The manifest records a path relative to the project (portable), unless the disc is outside it.
-    elf = (elf if elf.is_absolute() else root / elf).resolve()
+    # The manifest records a path relative to the project, unless the disc is outside it.
+    elf = resolve(read_json(data / 'languages.json')['recompile_elf'], root).resolve()
     # A hand-edited or stale language manifest must not reuse another region's map.
     executable = profile.get('executable', {})
     if executable:
@@ -181,7 +182,8 @@ def sync_owned(sources, destination, state_path, previous=None):
     destination, state_path = Path(destination).resolve(), Path(state_path)
     destination.mkdir(parents=True, exist_ok=True)
     state = read_json(state_path)
-    old = state.get('files', {}) if state.get('destination') == str(destination) else (previous or {})
+    recorded = state.get('destination')
+    old = state.get('files', {}) if recorded and resolve(recorded).resolve() == destination else (previous or {})
     desired = {name: digest(path) for name, path in sources.items()}
     # Validate all removals before making changes. Never delete a hand-edited or foreign file.
     for name in old.keys() - desired.keys():
@@ -203,7 +205,7 @@ def sync_owned(sources, destination, state_path, previous=None):
         if path.exists():
             path.unlink()
             removed += 1
-    atomic_json(state_path, dict(schema=1, destination=str(destination), files=desired))
+    atomic_json(state_path, dict(schema=1, destination=portable(destination), files=desired))
     return dict(changed=changed, removed=removed)
 
 

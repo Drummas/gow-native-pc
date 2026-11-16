@@ -409,13 +409,16 @@ def gather_fingerprint(ctx: Context) -> dict[str, Any]:
             raise ManagerError("Selected ELF or runner is missing", 2)
         # Use the same ELF parser as identification and regional registration.
         sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "disc"))
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "pipeline"))
         from discfs import text_sha1, pcsx2_crc
+        from records import resolve as resolve_record
         payload = elf.read_bytes()
         actual_text, actual_crc = text_sha1(payload), pcsx2_crc(payload)
         elf_hash, runner_hash = hashlib.sha256(payload).hexdigest(), sha256_file(runner)
+        # The registry stores paths inside the project relative to it (portable records); resolve them first.
         matches = [item for item in builds
-                   if Path(item.get("elf", "")).resolve() == elf
-                   and Path(item.get("runner", "")).resolve() == runner]
+                   if resolve_record(item.get("elf", ""), ctx.repo).resolve() == elf
+                   and resolve_record(item.get("runner", ""), ctx.repo).resolve() == runner]
         if matches:
             build = matches[0]
             if (build.get("elf_sha256") != elf_hash or build.get("runner_sha256") != runner_hash
@@ -426,8 +429,8 @@ def gather_fingerprint(ctx: Context) -> dict[str, Any]:
         cache = runner.parent.parent / "CMakeCache.txt"
         source = next((line.split("=", 1)[1] for line in cache.read_text(encoding="utf-8").splitlines()
                        if line.startswith("CMAKE_HOME_DIRECTORY:INTERNAL=")), "")
-        expected_source = build.get("source") or str(ctx.repo / "engine/runtime/PS2Recomp")
-        if not source or Path(source).resolve() != Path(expected_source).resolve():
+        expected_source = build.get("source") or "engine/runtime/PS2Recomp"
+        if not source or Path(source).resolve() != resolve_record(expected_source, ctx.repo).resolve():
             raise ManagerError("Selected runner belongs to a different source tree", 2)
         build = {**build, "elf_crc": actual_crc, "text_sha1": actual_text}
 

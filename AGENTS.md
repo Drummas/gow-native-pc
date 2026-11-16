@@ -66,8 +66,14 @@ to the short `C:\gow-build` root, recorded absolute. One folder per copy of this
 from another source folder): build.ps1 takes `build-<hash>` when the default belongs to another copy.
 The launcher also checks CMakeCache's source root before accepting a runner, so a fresh copy cannot use another copy's build.
 Portable records, all resolved by their readers: `data\build-root.txt` (relative to the project),
-`data\<id>\languages.json` (`elf`, `recompile_elf`) and the runner's `gow-native.boot` (disc path relative to the
-runner folder, which patch 25 resolves there). Keep that property in every new consumer.
+`data\<id>\languages.json` (`elf`, `recompile_elf`), `data\<id>\regional-builds.json` (`owner`, `elf`, `runner`,
+`source`, `dataDir`), the recompiler's sync state (`destination`) and the runner's `gow-native.boot` (disc and path
+settings relative to the runner folder, which patch 25 resolves there). The rule is one: a record stores a path inside the project
+relative to its root and keeps a path outside it (or on another drive) absolute. `portable()`/`resolve()` in
+`tools/pipeline/records.py` implement it for every Python writer and reader, `resolveRecord` in
+`regional_installations.h` for the launcher and `Get-RelativePath`/`Resolve-ProjectPath` in `common.ps1` for the
+pipeline; a reader resolves against the root of the installation it reads, never the working directory. Keep that
+property in every new consumer.
 A build folder inside the installation whose CMake cache names another project folder is reported as a moved
 installation (`InstallerBackend::movedBuild`): the Install page explains it and offers the rebuild, and the home status
 line says so instead of "not installed". Only a build folder inside the installation is reported; one the player chose
@@ -717,8 +723,16 @@ their digests need not match each other. Timing excludes reconstruction/hashing/
 `docs/research/worker-sync-task-replay.md`. Preserve worker/stage self-wait guards and the barrier's existing default.
 
 The pipeline creates `gow-native.boot` beside the built runner; the launcher atomically refreshes it on play.
-It records the selected ELF and runtime-prefixed environment variables only. No-argument runner launches restore it
-and write `standalone.log` beside the executable (patch 25). Never package this machine-specific profile.
+It records the selected ELF and runtime-prefixed environment variables only, and every path setting among them
+(`GOW_MC0`, `GOW_SAVES_DIR`, `GOW_SAVE_ASSETS`, `GOW_ISO`, `GOW_VU1_CAPTURA`, the texture pack, `GOW_TEX_PCSX2_NAMES`
+and the mod VFS table/log) relative to the runner's folder while it lives inside the installation: patch 25 resolves
+these keys against that folder and uses an absolute value exactly as recorded, so a copied or moved installation keeps
+its card, saves and pack. The key list is `isBootPathVariable` in `lanzador.cpp` (writer) and
+`gow_boot_profile::IsPathVariable` in `engine/runtime/PS2Recomp/ps2xRuntime/include/runtime/gow_boot_profile.h`,
+added by patch 25 (reader): keep both identical, and add a key to both when a new path setting is stored.
+`tools/test/boot_profile_test.cpp` covers the reader in `build.cmd -Stages verify` — a relative path setting, an
+absolute one, a setting that is not a path and a legacy profile without path settings. No-argument runner launches
+restore it and write `standalone.log` beside the executable (patch 25). Never package this machine-specific profile.
 The Performance diagnostics toggle enables audio buffer/rate, IOP drift, VU1 and performance counters.
 `tools/test/sound_regression.cpp` covers positive/negative SPU2 master-volume overflow (patch 24).
 See `docs/research/audio-standalone-mods-2026-10-26.md` for unresolved scene, HUD and mod acceptance criteria.

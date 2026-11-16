@@ -84,6 +84,13 @@ target_compile_features(gow_qte_hold_test PRIVATE cxx_std_20)
 target_include_directories(gow_qte_hold_test PRIVATE "${CMAKE_SOURCE_DIR}/ps2xRuntime/include")
 add_test(NAME gow_qte_hold_test COMMAND gow_qte_hold_test)
 set_tests_properties(gow_qte_hold_test PROPERTIES TIMEOUT 60)
+# Per-build boot profile (patch 25), header-only so it needs no runtime target: a relative path setting resolves against
+the runner's folder, an absolute one and a non-path setting are used as recorded, a legacy profile still restores.
+add_executable(gow_boot_profile_test "${CMAKE_CURRENT_LIST_DIR}/boot_profile_test.cpp")
+target_compile_features(gow_boot_profile_test PRIVATE cxx_std_20)
+target_include_directories(gow_boot_profile_test PRIVATE "${CMAKE_SOURCE_DIR}/ps2xRuntime/include")
+add_test(NAME gow_boot_profile_test COMMAND gow_boot_profile_test)
+set_tests_properties(gow_boot_profile_test PROPERTIES TIMEOUT 30)
 add_executable(gow_qte_input_test "${CMAKE_CURRENT_LIST_DIR}/qte_input_test.cpp"
     "${CMAKE_SOURCE_DIR}/ps2xRuntime/src/lib/ps2_pad.cpp")
 target_compile_features(gow_qte_input_test PRIVATE cxx_std_20)

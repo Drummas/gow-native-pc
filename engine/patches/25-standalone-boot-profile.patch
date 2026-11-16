@@ -1,21 +1,118 @@
 Read a per-build boot profile for direct game executable launches.
 Explicit guest ELF arguments retain precedence; only runtime environment prefixes are restored.
 The launcher persists its selected disc/settings and the pipeline supplies first-run defaults.
+Path settings (disc, card, saves, capture, texture pack) are recorded relative to the runner's folder while
+they live inside the installation and resolved there, so a copied or moved installation keeps them; an
+absolute value is used exactly as recorded. The reader and the path-setting list live in
+include/runtime/gow_boot_profile.h, header-only so tools/test/boot_profile_test.cpp covers them in verify.
 
+diff --git a/PS2Recomp/ps2xRuntime/include/runtime/gow_boot_profile.h b/PS2Recomp/ps2xRuntime/include/runtime/gow_boot_profile.h
+new file mode 100644
+index 0000000..6e79566
+--- /dev/null
++++ b/PS2Recomp/ps2xRuntime/include/runtime/gow_boot_profile.h
+@@ -0,0 +1,80 @@
++// gow-native-pc: the per-build boot profile (gow-native.boot) that a runner launched without arguments restores.
++//
++// The launcher refreshes it on play and the pipeline writes the first-run defaults. It holds a magic line, the recorded
++// disc, then the runtime environment settings (TOBIICHI_/PS2X_/GOW_). A path setting that lives inside the installation
++// is recorded relative to the runner's folder, so an installation copied or moved as one folder keeps its disc, card,
++// saves and texture pack; an absolute value is used exactly as recorded.
++//
++// Header-only and free of runtime dependencies (tools/test/boot_profile_test.cpp covers it in `build.cmd -Stages verify`).
++#pragma once
++
++#include <filesystem>
++#include <istream>
++#include <set>
++#include <string>
++#include <vector>
++
++namespace gow_boot_profile
++{
++    inline constexpr const char *kMagic = "GOW_NATIVE_BOOT_V1";
++
++    struct Setting
++    {
++        std::string key;
++        std::string value;
++    };
++
++    // UTF-8 bytes in, filesystem path out (`std::filesystem::u8path` is deprecated in C++20).
++    inline std::filesystem::path Utf8(const std::string &text)
++    {
++        return std::filesystem::path(std::u8string(text.begin(), text.end()));
++    }
++
++    // Settings whose value is a file or folder path. The launcher keeps the same list (isBootPathVariable in
++    // lanzador.cpp) when it records the profile: keep both identical.
++    inline bool IsPathVariable(const std::string &key)
++    {
++        static const std::set<std::string> keys = {
++            "GOW_ISO", "GOW_MC0", "GOW_MC1", "GOW_SAVES_DIR", "GOW_SAVE_ASSETS", "GOW_VU1_CAPTURA",
++            "GOW_TEXTURE_PACK", "GOW_TEX_PCSX2_NAMES", "GOW_MOD_VFS_TABLE", "GOW_MOD_VFS_LOG",
++            "TOBIICHI_ICONO", "TOBIICHI_CAPTURA"};
++        return keys.contains(key);
++    }
++
++    // A relative value of a path setting names something inside the runner's folder tree, so it is resolved against that
++    // folder here; an absolute value (another drive, or a folder outside the project) and every setting that is not a
++    // path are used exactly as recorded.
++    inline std::string Resolve(const std::filesystem::path &folder, const std::string &key, const std::string &value)
++    {
++        if (!IsPathVariable(key)) return value;
++        const auto recorded = Utf8(value);
++        if (!recorded.is_relative()) return value;
++        const auto resolved = (folder / recorded).u8string();
++        return std::string(reinterpret_cast<const char *>(resolved.c_str()), resolved.size());
++    }
++
++    // Reads the profile: magic line, recorded disc, then KEY=VALUE settings; a value keeps everything after the first
++    // '='. Only runtime-prefixed settings are restored, and \r line endings are accepted. False for a foreign or
++    // truncated file, so the caller falls back to its other boot sources.
++    inline bool Read(std::istream &stream, std::string &elf, std::vector<Setting> &settings)
++    {
++        std::string magic;
++        if (!std::getline(stream, magic)) return false;
++        if (!magic.empty() && magic.back() == '\r') magic.pop_back();
++        if (magic != kMagic) return false;
++        if (!std::getline(stream, elf)) return false;
++        if (!elf.empty() && elf.back() == '\r') elf.pop_back();
++        settings.clear();
++        std::string line;
++        while (std::getline(stream, line))
++        {
++            if (!line.empty() && line.back() == '\r') line.pop_back();
++            const auto split = line.find('=');
++            if (split == std::string::npos) continue;
++            const auto key = line.substr(0, split);
++            if (!(key.starts_with("TOBIICHI_") || key.starts_with("PS2X_") || key.starts_with("GOW_"))) continue;
++            settings.push_back({key, line.substr(split + 1)});
++        }
++        return true;
++    }
++}
 diff --git a/PS2Recomp/ps2xRuntime/src/main.cpp b/PS2Recomp/ps2xRuntime/src/main.cpp
-index 0f2b2a7..bcdb909 100644
+index 0f2b2a7..726299f 100644
 --- a/PS2Recomp/ps2xRuntime/src/main.cpp
 +++ b/PS2Recomp/ps2xRuntime/src/main.cpp
-@@ -18,6 +18,8 @@ void ps2InstallEePageWatch(PS2Runtime &runtime);
+@@ -1,4 +1,5 @@
+ #include "ps2_runtime.h"
++#include "runtime/gow_boot_profile.h"
+ 
+ void ps2InstallEeDiff(PS2Runtime &runtime); // src/lib/ee_ref/ee_diff.cpp
+ void ps2InstallEeWatch(PS2Runtime &runtime);
+@@ -18,6 +19,9 @@ void ps2InstallEePageWatch(PS2Runtime &runtime);
  #include <exception>
  #include <algorithm>
  #include <cstdlib>
 +#include <fstream>
 +#include <cstdio>
++#include <vector>
  
  #if defined(__ANDROID__)
  #include <android/log.h>
-@@ -151,6 +153,42 @@ namespace
+@@ -151,6 +155,40 @@ namespace
              std::cout << "Using argv boot path" << std::endl;
              return std::filesystem::path(argv[1]);
          }
@@ -25,30 +122,28 @@ index 0f2b2a7..bcdb909 100644
 +        {
 +            const auto folder = std::filesystem::absolute(argv[0]).parent_path();
 +            std::ifstream boot(folder / "gow-native.boot");
-+            std::string header, elf, line;
-+            if (std::getline(boot, header) && header == "GOW_NATIVE_BOOT_V1" && std::getline(boot, elf))
++            std::string elf;
++            std::vector<gow_boot_profile::Setting> settings;
++            if (gow_boot_profile::Read(boot, elf, settings))
 +            {
 +                std::filesystem::current_path(folder);
 +                std::ofstream("standalone.log", std::ios::trunc).close();
 +                std::freopen("standalone.log", "a", stdout);
 +                std::freopen("standalone.log", "a", stderr);
-+                if (!elf.empty() && elf.back() == '\r') elf.pop_back();
-+                auto path = std::filesystem::u8path(elf);
++                auto path = gow_boot_profile::Utf8(elf);
 +                // The launcher records the disc relative to this folder so a copied installation stays portable.
 +                if (path.is_relative()) path = folder / path;
 +                if (!std::filesystem::is_regular_file(path))
 +                    throw std::runtime_error("The disc recorded in gow-native.boot is missing. Open the launcher and select it again.");
-+                while (std::getline(boot, line))
++                for (const auto &setting : settings)
 +                {
-+                    if (!line.empty() && line.back() == '\r') line.pop_back();
-+                    const auto split = line.find('=');
-+                    if (split == std::string::npos) continue;
-+                    const auto key = line.substr(0, split), value = line.substr(split + 1);
-+                    if (!(key.starts_with("TOBIICHI_") || key.starts_with("PS2X_") || key.starts_with("GOW_"))) continue;
++                    // Path settings inside this folder's tree were recorded relative to it (launcher and pipeline) and
++                    // are resolved here; an absolute value and every setting that is not a path are used as recorded.
++                    const auto value = gow_boot_profile::Resolve(folder, setting.key, setting.value);
 +#if defined(_WIN32)
-+                    _wputenv_s(std::filesystem::u8path(key).wstring().c_str(), std::filesystem::u8path(value).wstring().c_str());
++                    _wputenv_s(gow_boot_profile::Utf8(setting.key).wstring().c_str(), gow_boot_profile::Utf8(value).wstring().c_str());
 +#else
-+                    setenv(key.c_str(), value.c_str(), 1);
++                    setenv(setting.key.c_str(), value.c_str(), 1);
 +#endif
 +                }
 +                std::cout << "Using per-build gow-native.boot" << std::endl;

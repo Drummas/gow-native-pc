@@ -12,6 +12,7 @@ sys.path.insert(0, str(ROOT / 'tools/disc'))
 sys.path.insert(0, str(ROOT / 'tools/pipeline'))
 from discfs import text_sha1, pcsx2_crc
 from recompile import atomic_json, digest
+from records import portable, resolve
 
 
 def register(root, game, region_id, runner, elf, data):
@@ -46,17 +47,20 @@ def register(root, game, region_id, runner, elf, data):
         raise ValueError('Build source does not match the selected region')
     manifest_path = root / 'data' / game / 'regional-builds.json'
     manifest = json.loads(manifest_path.read_text(encoding='utf-8')) if manifest_path.exists() else {
-        'schema': 1, 'owner': root.as_posix(), 'builds': []}
-    if Path(manifest['owner']).resolve() != root:
+        'schema': 1, 'owner': portable(root, root), 'builds': []}
+    if resolve(manifest['owner'], root).resolve() != root:
         raise ValueError('Regional registry belongs to another checkout')
     if data == (root / 'data' / game).resolve():
         raise ValueError('Regional saves and captures must not share the USA data directory')
     for existing in manifest['builds']:
-        if existing['region'] != region_id and any(Path(existing[key]).resolve() == path
+        if existing['region'] != region_id and any(resolve(existing[key], root).resolve() == path
                 for key, path in (('dataDir', data), ('runner', runner), ('elf', elf))):
             raise ValueError('Regional installations must use separate runners, discs and data')
-    entry = dict(region=region_id, label=region['label'], elf=elf.as_posix(), runner=runner.as_posix(),
-                 source=source.as_posix(), dataDir=data.as_posix(),
+    # A registered build is a record like any other: what lives inside the project is stored relative to it, so the
+    # installation keeps its region after being copied or moved; a build elsewhere (another folder or drive) stays
+    # absolute. Readers resolve the value against the project root.
+    entry = dict(region=region_id, label=region['label'], elf=portable(elf, root), runner=portable(runner, root),
+                 source=portable(source, root), dataDir=portable(data, root),
                  framePc=build.get('experimental_frame_pc') or region.get('experimental_frame_pc'),
                  elf_crc=build['known_crc'], text_sha1=build['known_text_sha1'],
                  runner_sha256=digest(runner), elf_sha256=hashlib.sha256(payload).hexdigest(), quality='original')

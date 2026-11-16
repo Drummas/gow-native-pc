@@ -223,8 +223,9 @@ launcher development also take space. The ISO is not needed to play after prepar
 
 Everything the game needs stays in the project folder: the build goes to `build-clang` inside it for clang Release (the
 PGO training build uses `build-clang-pgogen`), so the whole folder can be copied or moved to another path or drive.
-`data/build-root.txt` records it relative to the folder, and `data/<id>/languages.json` and the runner's `gow-native.boot`
-record the prepared disc the same way, so the installation stays portable. A very deep project folder (the runtime's
+`data/build-root.txt` records it relative to the folder, and `data/<id>/languages.json`, `data/<id>/regional-builds.json`
+and the runner's `gow-native.boot` record the prepared disc the same way, as well as the memory card, the saves folder and
+the texture pack it remembers, so the installation stays portable. A very deep project folder (the runtime's
 dependencies can exceed Windows' path limit) keeps the short `C:\gow-build` root and records that absolute.
 CMake's own cache holds absolute paths, so an installation that was copied or moved rebuilds in its new folder on the
 next **Install and build** (a full build; prepared discs, saves and the previous build folder are kept).

@@ -308,7 +308,15 @@ function Build-Game([string]$dir = $bld) {
         # relative to the runner's folder (patch 25 resolves it there) so a copied installation still finds it.
         $bootElf = Get-RelativePath (Join-Path $dir 'ps2xRuntime') $elf
         if (-not $bootElf) { $bootElf = $elf }
-        $bootText = "GOW_NATIVE_BOOT_V1`n$bootElf`nGOW_VU1N_X64=1`nGOW_VU1_CAPTURE_MISSES=1`nGOW_VU1_CAPTURA=$vu1`nPS2X_GS_WORKER=1`nGOW_GS_FINISH_ASINCRONO=1`nGOW_GS_EARLY_FINISH=1`nTOBIICHI_PANORAMICO=16:9`n"
+        # Path settings follow the disc: relative to the runner's folder while the path is inside the project (the runtime
+        # resolves it there), absolute otherwise.
+        $bootVu1 = $vu1
+        $insideProject = Get-RelativePath $root $vu1
+        if ($insideProject -and -not $insideProject.StartsWith('..')) {
+            $bootVu1 = Get-RelativePath (Join-Path $dir 'ps2xRuntime') $vu1
+            if (-not $bootVu1) { $bootVu1 = $vu1 }
+        }
+        $bootText = "GOW_NATIVE_BOOT_V1`n$bootElf`nGOW_VU1N_X64=1`nGOW_VU1_CAPTURE_MISSES=1`nGOW_VU1_CAPTURA=$bootVu1`nPS2X_GS_WORKER=1`nGOW_GS_FINISH_ASINCRONO=1`nGOW_GS_EARLY_FINISH=1`nTOBIICHI_PANORAMICO=16:9`n"
         [IO.File]::WriteAllText($bootFile, $bootText, (New-Object Text.UTF8Encoding($false)))
     }
     # the background VU1 compiler (launcher: "Compile new areas while playing") builds modules with this compiler and the

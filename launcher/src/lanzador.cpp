@@ -19,6 +19,7 @@
 #include <QJsonObject>
 #include <QProcessEnvironment>
 #include <QScreen>
+#include <QSet>
 #include <QSettings>
 #include <QStandardPaths>
 #include <QSaveFile>
@@ -124,6 +125,40 @@ namespace
     {
         const QFileInfoList isos = QDir(carpeta).entryInfoList({QStringLiteral("*.iso"), QStringLiteral("*.ISO")}, QDir::Files, QDir::Name);
         return isos.isEmpty() ? QString() : isos.first().absoluteFilePath();
+    }
+
+    // Settings of gow-native.boot whose value is a file or folder path. The boot profile records them relative to the
+    // runner's folder while they live inside the installation, so a copied or moved installation keeps its disc, card,
+    // saves and texture pack; the runtime (patch 25) resolves a relative value against that folder and uses an absolute
+    // one as recorded. Keep both lists identical.
+    bool isBootPathVariable(const QString &key)
+    {
+        static const QSet<QString> keys = {
+            QStringLiteral("GOW_ISO"), QStringLiteral("GOW_MC0"), QStringLiteral("GOW_MC1"),
+            QStringLiteral("GOW_SAVES_DIR"), QStringLiteral("GOW_SAVE_ASSETS"), QStringLiteral("GOW_VU1_CAPTURA"),
+            QStringLiteral("GOW_TEXTURE_PACK"), QStringLiteral("GOW_TEX_PCSX2_NAMES"),
+            QStringLiteral("GOW_MOD_VFS_TABLE"), QStringLiteral("GOW_MOD_VFS_LOG"),
+            QStringLiteral("TOBIICHI_ICONO"), QStringLiteral("TOBIICHI_CAPTURA"),
+        };
+        return keys.contains(key);
+    }
+
+    // What the boot profile records for a path setting: relative to the runner's folder when the path is inside the
+    // installation, absolute otherwise (another drive, or a folder outside the project).
+    QString bootRecordedValue(const QString &folder, const QString &root, const QString &value)
+    {
+        if (value.isEmpty() || root.isEmpty()) return value;
+#ifdef Q_OS_WIN
+        constexpr auto sensitivity = Qt::CaseInsensitive;
+#else
+        constexpr auto sensitivity = Qt::CaseSensitive;
+#endif
+        const QString base = QDir::cleanPath(root);
+        const QString target = QDir::cleanPath(QFileInfo(value).absoluteFilePath());
+        if (target.compare(base, sensitivity) != 0 && !target.startsWith(base + QLatin1Char('/'), sensitivity))
+            return value;
+        const QString relative = QDir(folder).relativeFilePath(target);
+        return QDir::isAbsolutePath(relative) ? value : relative;
     }
 }
 
@@ -657,6 +692,8 @@ bool Lanzador::iniciar(const QVariantMap &a, const QVariantMap &entornoMods)
     entorno.remove("GOW_MENU_SETTINGS"); // Per-session bridge must never survive in the reusable boot file.
     // Persist only runtime settings, never the complete inherited environment (which may contain credentials).
     const QString bootFolder = QFileInfo(ejecutable).absolutePath();
+    // The installation this session plays, so a path setting inside it can be recorded relative to the runner's folder.
+    const QString bootRoot = a.value(QStringLiteral("raiz")).toString();
     QSaveFile boot(bootFolder + QStringLiteral("/gow-native.boot"));
     if (boot.open(QIODevice::WriteOnly))
     {
@@ -668,8 +705,11 @@ bool Lanzador::iniciar(const QVariantMap &a, const QVariantMap &entornoMods)
             if (key.startsWith(QStringLiteral("TOBIICHI_")) || key.startsWith(QStringLiteral("PS2X_")) || key.startsWith(QStringLiteral("GOW_")))
             {
                 const QString value = entorno.value(key);
-                if (!value.contains('\n') && !value.contains('\r'))
-                    bytes += key.toUtf8() + '=' + value.toUtf8() + '\n';
+                if (value.contains('\n') || value.contains('\r')) continue;
+                // Path settings follow the disc: relative to this folder while inside the installation (patch 25
+                // resolves them there), absolute otherwise.
+                const QString recorded = isBootPathVariable(key) ? bootRecordedValue(bootFolder, bootRoot, value) : value;
+                bytes += key.toUtf8() + '=' + recorded.toUtf8() + '\n';
             }
         if (boot.write(bytes) == bytes.size()) boot.commit();
     }

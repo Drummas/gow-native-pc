@@ -1,6 +1,7 @@
 """Registration rejects wrong code, shared data and USA builds before publication."""
 import json
 from pathlib import Path
+import shutil
 import sys
 import tempfile
 import unittest
@@ -55,6 +56,23 @@ experimental_frame_pc = "0x100000"
         self.register(); self.register()
         self.assertEqual(len(json.loads(self.manifest.read_text())['builds']), 1)
         self.assertEqual(primary.read_bytes(), b'original manifest')
+
+    def test_registration_records_paths_inside_the_project_relative(self):
+        entry = self.register()
+        for key in ('elf', 'runner', 'source', 'dataDir'):
+            self.assertFalse(Path(entry[key]).is_absolute(), key)
+        manifest = json.loads(self.manifest.read_text())
+        self.assertEqual(manifest['owner'], '.')
+        self.assertEqual(manifest['builds'][0]['elf'], 'region/disc/REGION.ELF')
+        self.assertEqual(manifest['builds'][0]['dataDir'], 'region')
+
+    def test_paths_outside_the_project_stay_absolute_and_readers_resolve_records(self):
+        import records
+        self.assertEqual(records.resolve('region/disc/REGION.ELF', self.root), self.root / 'region/disc/REGION.ELF')
+        self.assertEqual(records.resolve((self.root / 'abs/ELF').as_posix(), self.root), self.root / 'abs/ELF')
+        outside = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, outside, True)
+        self.assertEqual(records.portable(outside / 'runner', self.root), (outside / 'runner').as_posix())
 
     def test_wrong_elf_preserves_previous_registration(self):
         self.register()

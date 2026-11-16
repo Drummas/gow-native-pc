@@ -25,13 +25,17 @@ OUT="$ROOT/data/_tmp"
 mkdir -p "$OUT"
 
 mapfile -t SELECTED < <(python - "$REG" "${REGION:-}" <<'PY'
-import json, sys
-builds = json.load(open(sys.argv[1]))["builds"]
+import json, os, sys
+registry = os.path.abspath(sys.argv[1])
+# data/<game>/regional-builds.json: the registry stores paths inside the project relative to its root.
+root = os.path.dirname(os.path.dirname(os.path.dirname(registry)))
+def recorded(value): return value if os.path.isabs(value) else os.path.join(root, value)
+builds = json.load(open(registry))["builds"]
 matches = [b for b in builds if not sys.argv[2] or b["region"] == sys.argv[2]]
 if len(matches) != 1: raise SystemExit("Select REGION when more than one build is registered")
 b = matches[0]
-print(b["runner"].replace("\\", "/"))
-print(b["elf"].replace("\\", "/"))
+print(recorded(b["runner"]).replace("\\", "/"))
+print(recorded(b["elf"]).replace("\\", "/"))
 print(b["framePc"])
 PY
 )

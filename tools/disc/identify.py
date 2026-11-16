@@ -25,6 +25,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(HERE), 'pipeline'))
 import discfs  # noqa: E402
 import chd  # noqa: E402
 import profile as profiles  # noqa: E402
+from records import resolve  # noqa: E402
 
 
 # launcher labels of guessed languages (a translation that is not a known edition)
@@ -85,9 +86,10 @@ def installed_build(prof, region_id, elf_crc, text_sha1):
     another region's executable (SCAJ-97399 boots the Japanese one) is still that code. A build whose runner or
     prepared executable is gone is not offered: the registry records files, not promises.
     """
+    # The registry stores paths inside the project relative to it; resolve them before looking for the files.
     builds = [b for b in regional_builds(prof)
               if b.get('elf_crc') == elf_crc and b.get('text_sha1') == text_sha1
-              and os.path.isfile(b.get('runner') or '') and os.path.isfile(b.get('elf') or '')]
+              and os.path.isfile(resolve(b.get('runner') or '')) and os.path.isfile(resolve(b.get('elf') or ''))]
     return next((b for b in builds if b.get('region') == region_id), builds[0] if builds else None)
 
 

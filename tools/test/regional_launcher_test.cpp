@@ -38,6 +38,20 @@ int main(int argc, char **argv) {
         require(entries.size() == 1, "valid installation accepted");
         require(entries[0].toMap().value("language") == "region:fixture", "unique selection identity");
         require(entries[0].toMap().value("card") == root + "/region/Mcd001.ps2", "private regional card");
+        // The registration list stores what lives inside the project relative to its root, so the installation can be
+        // copied or moved; the reader resolves it against the root it was given.
+        auto relative = row;
+        relative["runner"] = "build/ps2xRuntime/game.exe";
+        relative["elf"] = "region/disc/ELF";
+        relative["dataDir"] = "region";
+        relative["source"] = "source";
+        auto portable = manifest; portable["owner"] = "."; portable["builds"] = QJsonArray{relative};
+        publish(portable);
+        auto resolved = RegionalInstallations::read(root);
+        require(resolved.size() == 1, "relative registration accepted");
+        require(resolved[0].toMap().value("runner") == runner, "relative runner resolved against the root");
+        require(resolved[0].toMap().value("card") == root + "/region/Mcd001.ps2", "relative card resolved");
+        publish(manifest);
         auto bad = manifest; bad["owner"] = root + "/other"; publish(bad);
         require(RegionalInstallations::read(root).isEmpty(), "foreign checkout rejected");
         bad = manifest; bad["profile_sha256"] = "wrong"; publish(bad);

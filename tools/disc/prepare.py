@@ -38,6 +38,7 @@ import discfs  # noqa: E402
 import identify  # noqa: E402
 import chd  # noqa: E402
 import profile as profiles  # noqa: E402
+from records import portable  # noqa: E402
 import save_slots  # noqa: E402
 
 SECTOR = discfs.SECTOR
@@ -46,16 +47,6 @@ ROOT = os.path.dirname(os.path.dirname(HERE))
 
 def say(msg):
     print(msg, flush=True)
-
-
-def portable(path):
-    """The path as recorded in languages.json: relative to the project, so an installation can be copied or moved as one
-    folder. Paths outside the project (or on another drive) stay absolute."""
-    try:
-        relative = os.path.relpath(path, ROOT)
-    except ValueError:  # another drive on Windows
-        return os.path.abspath(path)
-    return os.path.abspath(path) if relative.startswith('..') else relative.replace(os.sep, '/')
 
 
 def junction(link, target):
