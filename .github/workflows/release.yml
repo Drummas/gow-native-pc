@@ -1,0 +1,281 @@
+# Release: builds the product's artifacts and publishes them with
+# CupOfTea696/gh-action-auto-release (https://github.com/marketplace/actions/auto-release).
+#
+# Two ways to release:
+#
+#   1. A commit on main whose message has a line `Release: v0.7.0` (subject or body). The
+#      auto-release action finds the version there, creates tag v0.7.0 and the release; a
+#      version with a pre-release part (v0.7.0-rc.1) becomes a GitHub pre-release.
+#   2. Actions -> Release -> Run workflow with "release" checked. The manual trigger needs
+#      the version input when the commit message has no `Release: vX.Y.Z` line, because the
+#      action itself only reads push commit messages.
+#
+# Either way the same four artifacts and SHA256SUMS.txt are attached, matching the
+# releases of the product (gow-native-pc-setup.exe, gow-native-pc-windows.zip and the
+# experimental Linux .run + .tar.gz). The prepare job refuses to build when the version
+# does not match launcher/CMakeLists.txt: the launcher reports its own version and its
+# update check compares it with the tag, so a mismatch would offer itself as an update.
+#
+# The Windows job runs the release stages of the pipeline, exactly as documented for a
+# local release (build.cmd -Stages launcher,package,installer). It passes
+# -NoReleaseProfile because the profile-guided data can only be trained on a machine with
+# the game (build.cmd -Stages fetch,configure,recomp,sync,pgo): the setup built here
+# installs and builds without PGO until a profile is trained. Run those stages locally and
+# release by hand if a release must ship games/gow1/pgo/shipped.profdata.
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      release:
+        description: 'Create the GitHub Release (off: only check the release gates, no build)'
+        type: boolean
+        default: false
+      version:
+        description: 'Version to release, such as 0.7.0 — only needed when the commit message has no "Release: vX.Y.Z"'
+        type: string
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+# One release at a time: two overlapping runs would race for the same tag and assets.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # Version, tag and whether this run releases at all. This mirrors the commit pattern of
+  # the auto-release action (any commit of the push, a whole line `Release: vX.Y.Z`), so the
+  # expensive jobs never start for an ordinary push.
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      release: ${{ steps.version.outputs.release }}
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # tags: the run must see an existing release tag
+      - name: Read the version and decide
+        id: version
+        env:
+          EVENT: ${{ github.event_name }}
+          INPUT_RELEASE: ${{ inputs.release }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          # `Release: v0.7.0` or `Release: 0.7.0`, on its own line, in any commit of the push
+          line='^[Rr]elease: v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'
+          from_text() { grep -m1 -E "$line" | sed -E 's/^[Rr]elease: v?//' || true; }
+
+          version=""
+          release=false
+          if [ "$EVENT" = "push" ]; then
+            # the action reads payload.commits: check every commit of this push, as it does
+            version=$(jq -r '.commits[].message' "$GITHUB_EVENT_PATH" | from_text)
+            [ -n "$version" ] && release=true
+          else
+            release="${INPUT_RELEASE:-false}"
+            version="${INPUT_VERSION:-}"
+            # a manual run after a `Release: vX.Y.Z` commit takes the version from it
+            [ -z "$version" ] && version=$(git log -1 --format=%B | from_text)
+          fi
+
+          if [ "$release" != "true" ]; then
+            echo "Not a release (commit message pattern or the release input): packing nothing."
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ -z "$version" ]; then
+            echo "::error::no version: commit a 'Release: vX.Y.Z' line or fill the version input"
+            exit 1
+          fi
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'; then
+            echo "::error::'$version' is not a version such as 0.7.0 or 0.7.0-rc.1"
+            exit 1
+          fi
+          tag="v$version"
+          if git rev-parse -q --verify "refs/tags/$tag" > /dev/null; then
+            echo "::error::$tag already exists: bump the version, a release cannot be replaced"
+            exit 1
+          fi
+          # The launcher inside the release reports its own version and its update check
+          # compares it with the tag: both must be the same.
+          declared=$(sed -nE 's/^project\(GowNativePcLauncher VERSION ([0-9]+\.[0-9]+\.[0-9]+)[^0-9].*/\1/p' launcher/CMakeLists.txt | head -1)
+          case "$version" in
+            "$declared"|"$declared"-*) ;;
+            *)
+              echo "::error::launcher/CMakeLists.txt declares $declared but this release is $version: bump project(... VERSION ...) in the same commit"
+              exit 1
+              ;;
+          esac
+          prerelease=$(printf '%s' "$version" | sed -nE 's/^[0-9]+\.[0-9]+\.[0-9]+-(.+)$/\1/p')
+          echo "Releasing $tag (pre-release identifier: '${prerelease}')."
+          {
+            echo "release=true"
+            echo "version=$version"
+            echo "tag=$tag"
+            echo "prerelease=$prerelease"
+          } >> "$GITHUB_OUTPUT"
+
+  # Windows: the launcher (Qt 6), the portable zip and the one-file setup, from the
+  # release stages of tools/pipeline/build.ps1.
+  windows:
+    needs: prepare
+    if: needs.prepare.outputs.release == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      # The pipeline builds its own pinned Qt SDK on the first run (tools/pipeline/modules/qt.ps1):
+      # it is the slow part, so keep the pinned tools between runs.
+      - name: Cache the pinned tools and Qt SDK
+        uses: actions/cache@v4
+        with:
+          path: data/_tools
+          key: tools-${{ runner.os }}-${{ hashFiles('tools/pipeline/toolchains.json', 'tools/pipeline/modules/qt.ps1', 'tools/pipeline/compat/**', 'tools/test/qt-sequence-sort.cpp') }}
+      - name: Build the launcher, the Windows distribution and the setup
+        shell: cmd
+        env:
+          # a pre-release reports <version>-<suffix>, so the final release is offered as an update
+          GOW_PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
+        run: build.cmd -Stages tools,launcher,package,installer -NoReleaseProfile
+      - name: Verify the setup payload without installing it
+        shell: pwsh
+        run: python -I tools/test/verify_setup.py data\_package\gow-native-pc-setup.exe data\_package\gow-native-pc
+      - name: Collect the release files
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item -LiteralPath data\_package\gow-native-pc-setup.exe -Destination dist
+          Copy-Item -LiteralPath data\_package\gow-native-pc-windows.zip -Destination dist
+          Get-ChildItem dist | Format-Table Name, Length
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: dist/*
+          if-no-files-found: error
+
+  # Linux (experimental): the native launcher package and its self-extracting .run
+  # (tools/pipeline/package_linux.py; the name follows the runner's Ubuntu release).
+  linux:
+    needs: prepare
+    if: needs.prepare.outputs.release == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Native dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config libsdl2-dev libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libasound2-dev
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.3'
+          arch: linux_gcc_64
+          cache: true
+      - name: Build the Linux launcher
+        run: bash build.sh --stages tools,fetch,launcher --jobs 2
+      - name: Package the Linux distribution
+        id: pack
+        run: |
+          set -euo pipefail
+          os=$( . /etc/os-release && echo "$VERSION_ID" )
+          name="gow-native-pc-linux-x86_64-ubuntu${os}-experimental"
+          mkdir -p dist
+          python3 -I tools/pipeline/package_linux.py --root . \
+            --launcher data/build-linux/launcher \
+            --output "dist/${name}.tar.gz" \
+            --installer "dist/${name}.run"
+          echo "run=dist/${name}.run" >> "$GITHUB_OUTPUT"
+      - name: Install the generated .run into a private directory
+        run: python3 -I tools/test/linux-installer.py "${{ steps.pack.outputs.run }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: dist/*
+          if-no-files-found: error
+
+  # Publish: the release, then the assets. The auto-release action creates the release from
+  # the commit message on a push; a manual run creates it here (the action reads push
+  # commits only). The body is docs/releases/<tag>.md when that file exists, as the CHANGELOG
+  # describes; otherwise the CHANGELOG entry for the tag (push) and, when there is none
+  # either, GitHub's generated notes, so a release never ships an empty description.
+  publish:
+    needs: [prepare, windows, linux]
+    if: needs.prepare.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      TAG: ${{ needs.prepare.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum gow-native-pc-setup.exe gow-native-pc-windows.zip *.tar.gz *.run > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+      - name: Create the release from the commit message
+        id: autorel
+        if: github.event_name == 'push'
+        uses: CupOfTea696/gh-action-auto-release@v1
+        with:
+          title: "v$semver"
+          tag: "v$semver"
+          draft: false
+          changelog: CHANGELOG.md
+          changelog-entry: $version
+          # a whole line `Release: v0.7.0` in any commit of the push (m: every line matches)
+          regex: "/^Release: #{semver}$/im"
+      - name: Create the release from the manual trigger
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          set -euo pipefail
+          extra=()
+          if [ -n "${{ needs.prepare.outputs.prerelease }}" ]; then
+            extra+=(--prerelease)
+          fi
+          if [ -f "docs/releases/$TAG.md" ]; then
+            gh release create "$TAG" --title "$TAG" --notes-file "docs/releases/$TAG.md" "${extra[@]}"
+          else
+            gh release create "$TAG" --title "$TAG" --generate-notes "${extra[@]}"
+          fi
+      - name: Set the release body
+        if: steps.autorel.outputs.released == 'true'
+        run: |
+          set -euo pipefail
+          if [ -f "docs/releases/$TAG.md" ]; then
+            gh release edit "$TAG" --notes-file "docs/releases/$TAG.md"
+          elif ! grep -qE "^## \[?$TAG\]?( |$)" CHANGELOG.md; then
+            # the action copies the CHANGELOG entry: without one the body would be empty
+            gh release edit "$TAG" --generate-notes
+          fi
+      - name: Attach the artifacts
+        if: steps.autorel.outputs.released == 'true' || github.event_name == 'workflow_dispatch'
+        run: gh release upload "$TAG" dist/* --clobber
+      - name: Summary
+        if: steps.autorel.outputs.released == 'true' || github.event_name == 'workflow_dispatch'
+        run: |
+          set -euo pipefail
+          gh release view "$TAG" --json url,isPrerelease --jq '.url + "  pre-release: " + (.isPrerelease | tostring)'
+          gh release view "$TAG" --json assets --jq '.assets[].name'
