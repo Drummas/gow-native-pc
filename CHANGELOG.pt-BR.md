@@ -23,6 +23,35 @@ diziam v0.0.x. Agora são v0.1.0, v0.2.0, v0.3.0 e v0.3.1, com os mesmos arquivo
 cima da instalação atual**; daí em diante as atualizações automáticas voltam a funcionar. A compilação do jogo, os
 discos e os saves são mantidos.
 
+## [v0.7.1] — 2026-11-16
+
+Todo caminho que a instalação guarda sobre si mesma agora é relativo, incluindo o cartão de memória, a pasta de saves,
+o pacote de texturas e as compilações regionais que o launcher mantém. A v0.7.0 tornou portáteis a pasta de compilação e
+o disco; os registros das compilações regionais, o estado de sincronização do recompilador e os valores de caminho do
+perfil de boot ainda ficavam absolutos, então uma instalação copiada podia continuar apontando para a pasta de origem.
+Recompile o jogo quando o launcher pedir (o patch 25 mudou).
+
+### Registros portáteis
+- **Compilações regionais** (`data/<game>/regional-builds.json`) gravam `owner`, `elf`, `runner`, `source` e `dataDir`
+  relativos ao projeto, e o launcher os resolve ali: uma compilação de Europa ou Japão registrada continua funcionando
+  depois de mover a instalação.
+- **O estado de sincronização do recompilador** grava o destino do mesmo jeito, então uma instalação movida sincroniza na
+  própria pasta em vez da antiga.
+- **O perfil de boot** que o launcher grava (`gow-native.boot`) registra o disco, o cartão de memória, a pasta de saves,
+  os assets de save, a pasta de captura da VU1, o pacote de texturas, a lista de nomes de textura e a tabela/log do VFS de
+  mods relativos à pasta do runner enquanto eles estiverem dentro da instalação. O patch 25 os resolve nessa pasta e usa
+  um valor absoluto exatamente como gravado, então o jogo encontra o cartão e os saves depois de copiar ou mover a
+  instalação. O pipeline grava o perfil da primeira execução do mesmo jeito.
+- Um caminho fora do projeto, ou em outro disco, continua absoluto: nenhum registro portátil consegue descrevê-lo, e
+  registros antigos que ainda têm caminhos absolutos continuam funcionando.
+
+### Desenvolvimento
+- O `verify` compila e roda o `gow_boot_profile_test`, que cobre o leitor do perfil de boot, agora em
+  `runtime/gow_boot_profile.h` no runtime (header-only, adicionado pelo patch 25): um caminho relativo, um absoluto, um
+  valor que não é caminho e um perfil antigo sem caminhos.
+- O workflow de release passa um único `GITHUB_TOKEN` para o job de publicação: a action de auto-release lê essa variável
+  e o `gh` recorre a ela, então publicar não depende mais de uma segunda variável com o mesmo valor.
+
 ## [v0.7.0] — 2026-11-16
 
 A instalação agora vai junto com a pasta: o launcher, o setup e o pipeline gravam os caminhos relativos ao projeto,

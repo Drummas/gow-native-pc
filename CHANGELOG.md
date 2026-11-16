@@ -21,6 +21,34 @@ said v0.0.x. They are now v0.1.0, v0.2.0, v0.3.0 and v0.3.1, with the same files
 releases (it reports 1.0.0 to 3.0.1) does not see 0.x releases as newer: **install v0.4.0 once from its setup over the
 existing installation**; automatic updates work again from there on. Your game build, discs and saves are kept.
 
+## [v0.7.1] — 2026-11-16
+
+Every path an installation records about itself is now relative, including the card, the saves folder, the texture pack
+and the regional builds the launcher keeps. v0.7.0 made the build folder and the disc portable; the regional build
+records, the recompiler's sync state and the settings of the boot profile were still stored absolute, so a copied
+installation could keep pointing at the folder it came from. Rebuild the game when the launcher asks (patch 25 changed).
+
+### Portable records
+- **Regional builds** (`data/<game>/regional-builds.json`) record `owner`, `elf`, `runner`, `source` and `dataDir`
+  relative to the project, and the launcher resolves them there: a registered Europe or Japan build keeps working after
+  the installation moves.
+- **The recompiler's sync state** records its destination the same way, so a moved installation syncs into its own
+  folder instead of the old one.
+- **The boot profile** the launcher writes (`gow-native.boot`) records the disc, the memory card, the saves folder, the
+  save assets, the VU1 capture folder, the texture pack, the texture-name list and the mod VFS table/log relative to the
+  runner's folder while they live inside the installation. Patch 25 resolves them against that folder and uses an
+  absolute value exactly as recorded, so the game finds its card and saves after the installation is copied or moved.
+  The pipeline writes its first-run profile the same way.
+- A path outside the project, or on another drive, stays absolute: no portable record can describe it, and old records
+  that still hold absolute paths keep working.
+
+### Development
+- `verify` builds and runs `gow_boot_profile_test`, which covers the boot profile reader now living in the runtime's
+  `runtime/gow_boot_profile.h` (header-only, added by patch 25): a relative path setting, an absolute one, a setting
+  that is not a path and a legacy profile without path settings.
+- The release workflow gives its publish job one `GITHUB_TOKEN`: the auto-release action reads it and `gh` falls back to
+  it, so publishing no longer needs a second variable with the same value.
+
 ## [v0.7.0] — 2026-11-16
 
 The installation now moves with its folder: the launcher, the setup and the pipeline record their paths relative to

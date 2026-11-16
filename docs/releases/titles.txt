@@ -6,3 +6,4 @@ v0.4.0	v0.4.0 — Shipped PGO profile, Fast VU mode, hold instead of mashing and
 v0.5.0	v0.5.0 — Experimental Linux, CHD import, regional editions and accessibility improvements
 v0.6.1	v0.6.1 — Stable in-game menu, native save slots, shipped PGO and reliable keyboard QTEs
 v0.7.0	v0.7.0 — Portable installation: move the folder, keep the build, with a build-folder picker
+v0.7.1	v0.7.1 — Portable records: the card, the saves and the texture pack move with the folder
