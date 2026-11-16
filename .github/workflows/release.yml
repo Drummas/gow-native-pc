@@ -219,7 +219,10 @@ jobs:
     if: needs.prepare.outputs.release == 'true'
     runs-on: ubuntu-latest
     env:
+      # gh reads GH_TOKEN; CupOfTea696/gh-action-auto-release reads GITHUB_TOKEN from the environment and throws
+      # otherwise (GitHub does not export either to a step by itself).
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       TAG: ${{ needs.prepare.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
