@@ -656,10 +656,14 @@ bool Lanzador::iniciar(const QVariantMap &a, const QVariantMap &entornoMods)
         entorno.insert("GOW_SAVE_ASSETS", saveAssets);
     entorno.remove("GOW_MENU_SETTINGS"); // Per-session bridge must never survive in the reusable boot file.
     // Persist only runtime settings, never the complete inherited environment (which may contain credentials).
-    QSaveFile boot(QFileInfo(ejecutable).absolutePath() + QStringLiteral("/gow-native.boot"));
+    const QString bootFolder = QFileInfo(ejecutable).absolutePath();
+    QSaveFile boot(bootFolder + QStringLiteral("/gow-native.boot"));
     if (boot.open(QIODevice::WriteOnly))
     {
-        QByteArray bytes = "GOW_NATIVE_BOOT_V1\n" + QFileInfo(elf).absoluteFilePath().toUtf8() + '\n';
+        // The disc is recorded relative to the runner's folder (patch 25 resolves it there), so an installation copied
+        // or moved as one folder still boots its own disc; another drive keeps the absolute path.
+        const QString elfRecord = QDir(bootFolder).relativeFilePath(QFileInfo(elf).absoluteFilePath());
+        QByteArray bytes = "GOW_NATIVE_BOOT_V1\n" + elfRecord.toUtf8() + '\n';
         for (const QString &key : entorno.keys())
             if (key.startsWith(QStringLiteral("TOBIICHI_")) || key.startsWith(QStringLiteral("PS2X_")) || key.startsWith(QStringLiteral("GOW_")))
             {

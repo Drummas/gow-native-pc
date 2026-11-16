@@ -93,10 +93,11 @@ bash build.sh --discs "/path/to/your/game.iso"
 
 The launcher finds the checkout above its build directory. Its Install tab uses
 the same Linux pipeline and writes the selected game build directory to
-`data/build-root-linux.txt`. Keep the checkout and prepared discs in place;
+`data/build-root-linux.txt`, relative to the checkout, so the checkout and its
+build can be moved together. Keep the checkout and prepared discs in place;
 copying only the launcher binary is not a portable distribution. Linux paths
-are case-sensitive. Prepare discs on Linux instead of reusing Windows absolute
-paths from `languages.json`.
+are case-sensitive: prepare discs on Linux instead of reusing a Windows `data/`
+directory.
 
 `--jobs N` overrides the automatic CPU/RAM bound. Low-memory machines may need
 `--jobs 1`; monitor disk and memory during generation and linking. A first build

@@ -40,6 +40,27 @@ function Write-PipelineMetrics {
 
 function Need($p, $what) { if (-not (Test-Path $p)) { throw "Missing $what : $p" } }
 function Barra($p) { $p -replace '\\', '/' }
+# Records written by the pipeline (data/build-root.txt, languages.json) keep paths relative to the project so the whole
+# installation can be copied or moved as one folder; resolve them against $root when reading.
+function Resolve-ProjectPath([string]$path) {
+    if ($path -and -not [IO.Path]::IsPathRooted($path)) { return [IO.Path]::GetFullPath((Join-Path $root $path)) }
+    return $path
+}
+# Relative path from $baseDir to $path, or $null when they are not on one volume (no portable record is possible).
+function Get-RelativePath([string]$baseDir, [string]$path) {
+    $base = [IO.Path]::GetFullPath($baseDir).TrimEnd('\', '/')
+    $full = [IO.Path]::GetFullPath($path).TrimEnd('\', '/')
+    if ([IO.Path].GetMethod('GetRelativePath', [type[]]@([string], [string]))) {
+        $relative = [IO.Path]::GetRelativePath($base, $full)
+        return $(if ([IO.Path]::IsPathRooted($relative)) { $null } else { $relative })
+    }
+    # Windows PowerShell 5.1 has no [IO.Path]::GetRelativePath; both ends must be explicit Uri objects (a cast
+    # followed by a method call binds the member access to the string, not to the Uri).
+    $separator = [IO.Path]::DirectorySeparatorChar
+    $made = [Uri]::new($base + $separator).MakeRelativeUri([Uri]::new($full + $separator))
+    if ($made.IsAbsoluteUri) { return $null }
+    return [Uri]::UnescapeDataString($made.ToString()).TrimEnd('/').Replace('/', $separator)
+}
 function Get-RuntimePatches {
     # Windows PowerShell 5.1 sorts punctuation differently from PowerShell 7.
     # Ordinal order guarantees 29-... precedes its dependent 29a/29b follow-ups on both hosts.

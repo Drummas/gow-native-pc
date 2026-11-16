@@ -52,11 +52,15 @@ data = root / "data" / args.game
 if args.runner:
     runner = args.runner.resolve()
 elif sys.platform == 'linux':
-    runner = Path((root / "data/build-root-linux.txt").read_text().strip()) / "ps2xRuntime/ps2EntryRunner"
+    base = Path((root / "data/build-root-linux.txt").read_text().strip())
+    runner = (base if base.is_absolute() else root / base) / "ps2xRuntime/ps2EntryRunner"
 else:
-    runner = Path((root / "data/build-root.txt").read_text().strip() + "-clang") / "ps2xRuntime/ps2EntryRunner.exe"
-elf = (str(args.elf.resolve()) if args.elf else
-       json.loads((data / "languages.json").read_text(encoding="utf-8"))["recompile_elf"])
+    base = Path((root / "data/build-root.txt").read_text().strip())
+    runner = Path(str(base if base.is_absolute() else root / base) + "-clang") / "ps2xRuntime/ps2EntryRunner.exe"
+# Records are relative to the project (portable), unless the path is outside it.
+elf = (args.elf.resolve() if args.elf else
+       Path(json.loads((data / "languages.json").read_text(encoding="utf-8"))["recompile_elf"]))
+elf = elf if elf.is_absolute() else root / elf
 if not runner.is_file() or not Path(elf).is_file():
     parser.error("Runner and prepared ELF must exist")
 helper = root / ("data/build-linux/launcher/gow-session" if sys.platform == 'linux'

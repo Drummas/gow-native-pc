@@ -58,14 +58,32 @@ data/                       generated, git-ignored: discs, languages.json, mc0, 
                             iop_modules, logs, _tools/qt
 ```
 
-Build folder: `C:\gow-build` (Release) / `C:\gow-build-dev` (RelWithDebInfo). It must stay short: the runtime's CMake
-dependencies (git checkouts) exceed MAX_PATH under long paths. One folder per copy of this repository (CMake refuses a
-cache made from another source folder): build.ps1 takes `C:\gow-build-<hash>` when `C:\gow-build` belongs to another
-copy, and records the choice in `data\build-root.txt`, which the launcher (runner path) and the uninstaller read.
+Build folder: `build` inside the project (Release: `build-clang`, RelWithDebInfo: `build-dev-clang`), recorded in
+`data\build-root.txt` **relative** to the project so the installation can be copied or moved as one folder. The launcher
+(runner path), the uninstaller and the pipeline read that record. It must stay short: the runtime's CMake dependencies
+(git checkouts) exceed MAX_PATH under long paths, so a project folder whose build path would exceed the budget falls back
+to the short `C:\gow-build` root, recorded absolute. One folder per copy of this repository (CMake refuses a cache made
+from another source folder): build.ps1 takes `build-<hash>` when the default belongs to another copy.
 The launcher also checks CMakeCache's source root before accepting a runner, so a fresh copy cannot use another copy's build.
+Portable records, all resolved by their readers: `data\build-root.txt` (relative to the project),
+`data\<id>\languages.json` (`elf`, `recompile_elf`) and the runner's `gow-native.boot` (disc path relative to the
+runner folder, which patch 25 resolves there). Keep that property in every new consumer.
+A build folder inside the installation whose CMake cache names another project folder is reported as a moved
+installation (`InstallerBackend::movedBuild`): the Install page explains it and offers the rebuild, and the home status
+line says so instead of "not installed". Only a build folder inside the installation is reported; one the player chose
+elsewhere belongs to whichever copy configured it and stays rejected by the runner ownership check.
+The Install page writes that same record (`InstallerBackend::setBuildRoot`, the setup's Build folder → Change), so an
+existing installation can move its build into the project folder without the setup: inside the installation it is
+recorded relative again, outside it absolute. The picker refuses the installation folder itself, a base beyond the
+pipeline's budget and a cache made by another copy, and maps a picked `build-clang` back to `build`. It never moves an
+existing build (CMake's cache cannot leave its folder). On Linux the picker is hidden: `tools/pipeline/linux.py` always
+builds in `data/build-linux/<game>`.
 
-Normal setup exposes a separate build base (`/BUILDROOT=` in silent mode) and
-persists UTF-8 `data/build-root.txt`. Updates retain it unless explicitly changed.
+Normal setup defaults the build base to `<install>\build` (a separate base is still available with `/BUILDROOT=` in
+silent mode) and persists UTF-8 `data/build-root.txt`. Updates retain it unless explicitly changed.
+Moving or copying the installation keeps every record valid, but CMake's cache keeps absolute paths: the pipeline treats
+the moved cache as foreign and starts a full build in `build-<hash>`, so the old folder is preserved and nothing is
+presented as relocatable.
 A location change requires rebuilding; never copy CMake/Ninja caches as relocatable
 or delete the old build/player data automatically. Collision fallback stays beside
 the selected base, with exact source ownership checks. Installer tests use the
@@ -383,7 +401,10 @@ GPU/presentation latency. Run `tools/test/session_diagnostics.py` against the de
   Regression checks: `tools/test/build-progress-tests.ps1` (also in pipeline-tests.ps1) and
   `python -I tools/test/loading-progress.py <Qt SDK bin/qml.exe> <llvm-mingw bin>` (real QML, fake pipeline signals).
 - **languages.json** (`data/<id>/`): `{game, title, recompile_elf, languages: [{language, label, edition, quality,
-  elf}]}`; quality = original | full | standalone. The launcher plays `elf` of the chosen language.
+  elf}]}`; quality = original | full | standalone. The launcher plays `elf` of the chosen language. `prepare.py` records
+  `elf`/`recompile_elf` relative to the project (absolute only for a disc outside it), so every reader must resolve them
+  against the project root (`Languages` in `process.ps1`, `recompile.py`, `linux.py`, `save_slots.py`,
+  `installer_backend.cpp`); a new reader that skips this breaks portability.
 - **In-game menu (patch 39, redesigned by zzz-318)**: F1 or Back+Start opens the category dock in `gow_trucos.cpp`
   (Graphics, Controls, Audio, Mods, Cheats, Save); F2 opens cheats, Ctrl+F1 opens the ImGui runtime debugger.
   Remapping, master volume/mute and supported graphics changes are live and persist through the launcher settings bridge.
@@ -524,6 +545,11 @@ GPU/presentation latency. Run `tools/test/session_diagnostics.py` against the de
 - **New game**: see `docs/adding-a-game.md`.
 - **New translation / edition**: add an `[[editions]]` entry (elf_crc from `identify.py`); if it changes code (.text
   differs) it is not supported.
+- **Releases**: `.github/workflows/release.yml` publishes them. A commit on `main` with a line `Release: vX.Y.Z`
+  (or Actions → Release with the `release` input) builds `gow-native-pc-setup.exe`, `gow-native-pc-windows.zip` and the
+  experimental Linux `.run`/`.tar.gz`, and attaches them plus `SHA256SUMS.txt`. The gates live in its `prepare` job:
+  the version must equal `launcher/CMakeLists.txt` (the launcher's update check compares it with the tag), the tag must
+  not exist, and CI packages with `-NoReleaseProfile` (the PGO profile is trained only on a machine with the game).
 - **Launcher version**: `launcher/CMakeLists.txt` `project(... VERSION x.y.z)` is the release; a release candidate is
   built with `GOW_PRERELEASE=rc.N` in the environment (the launcher stage always passes `-DGOW_PRERELEASE=...`, so an
   empty value clears an earlier suffix) and reports `x.y.z-rc.N`, which `versionMayor` (Main.qml) orders before

@@ -5,7 +5,7 @@
                                                                                     │
 engine/runtime.toml ──► fetch: engine/runtime (PS2Recomp + game overrides) + engine/patches
                                                                                     │
-games/<id>/game.toml ─► configure (CMake/Ninja, C:\gow-build) ─► recomp (ELF → C++) ─► sync ─► build ─► ps2EntryRunner.exe
+games/<id>/game.toml ─► configure (CMake/Ninja, <repo>\build-clang) ─► recomp (ELF → C++) ─► sync ─► build ─► ps2EntryRunner.exe
                                                                                     │
                         optimize: scripted run records VU1 microcode + IOP modules ─► native: compiled into the game
                                                                                     │

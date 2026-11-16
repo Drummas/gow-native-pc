@@ -221,11 +221,18 @@ The source ISO is extracted into `data/gow1/discs/`; keeping it on the same driv
 the installed files. Downloaded tools, the runtime checkout, extra languages, the PGO training build and the Qt SDK for
 launcher development also take space. The ISO is not needed to play after preparation; keep your backup separately.
 
-Builds use a short folder on `C:` by default: `C:\gow-build-clang` for clang Release (the PGO training build uses
-`C:\gow-build-clang-pgogen`). If another copy already uses that root, the pipeline chooses `C:\gow-build-<hash>-clang`.
-The base path is recorded in `data/build-root.txt`; the launcher reads it automatically.
-In setup, use **Build folder → Change** to choose a short local path such as `D:\gow-build`
+Everything the game needs stays in the project folder: the build goes to `build-clang` inside it for clang Release (the
+PGO training build uses `build-clang-pgogen`), so the whole folder can be copied or moved to another path or drive.
+`data/build-root.txt` records it relative to the folder, and `data/<id>/languages.json` and the runner's `gow-native.boot`
+record the prepared disc the same way, so the installation stays portable. A very deep project folder (the runtime's
+dependencies can exceed Windows' path limit) keeps the short `C:\gow-build` root and records that absolute.
+CMake's own cache holds absolute paths, so an installation that was copied or moved rebuilds in its new folder on the
+next **Install and build** (a full build; prepared discs, saves and the previous build folder are kept).
+In setup, use **Build folder → Change** to keep the build somewhere else, such as `D:\gow-build`
 (up to 40 characters). The same choice is available when updating an existing installation.
+The launcher's Install tab has the same **Build folder → Change**, so an installation whose build sits outside its
+folder (the short `C:\gow-build` root) can move it into the project without running the setup again; a folder inside
+the project is recorded relative again, so the installation stays portable.
 Changing it requires compiling again; existing saves and the previous build are preserved.
 The installer does not move compiled CMake caches. Updates without a new choice retain the current path.
 

@@ -12,9 +12,10 @@ $logs = Join-Path $data 'logs'
 $gen = Join-Path $data 'recomp'
 $vu1 = Join-Path $data 'vu1_capture'
 $iopMods = Join-Path $data 'iop_modules'
-# Build folder of this copy, remembered in data\build-root.txt (the launcher reads it too). C:\gow-build unless another
-# copy (a development checkout, a second installation) already configured it: CMake refuses a cache made from another
-# source folder, so this copy then takes C:\gow-build-<hash of its folder>.
+# Build folder of this copy, inside the project (build) and recorded in data\build-root.txt, which the launcher and the
+# uninstaller read too. Keeping it in the project makes the installation a single folder that can be copied or moved, and
+# the record is written relative so it keeps working after the move. CMake refuses a cache made from another source
+# folder, so a copy that already inherited a foreign cache takes build-<hash of its folder> instead.
 $buildRootFile = Join-Path $root 'data\build-root.txt'
 $md5 = [Security.Cryptography.MD5]::Create().ComputeHash([Text.Encoding]::UTF8.GetBytes($root.ToLowerInvariant()))
 $rootSuffix = '-' + (($md5[0..3] | ForEach-Object { $_.ToString('x2') }) -join '')
@@ -27,7 +28,19 @@ function Test-ForeignCache([string]$folder) {
 }
 if (-not $BuildRoot -and (Test-Path $buildRootFile)) { $BuildRoot = [IO.File]::ReadAllText($buildRootFile).Trim() }
 $defaultRoot = -not $BuildRoot
-if ($defaultRoot) { $BuildRoot = 'C:\gow-build' }
+if ($defaultRoot) {
+    $BuildRoot = Join-Path $root 'build'
+    # The runtime's CMake dependencies (git checkouts) and objects need room under Windows' 260-character limit.
+    if (-not $portableBuildBudget) { $portableBuildBudget = 80 }
+    # A project folder too deep for them keeps the short root of the earlier layout, outside the project and therefore
+    # recorded absolute. -BuildRoot still overrides both.
+    if (($BuildRoot + '-dev-clang').Length -gt $portableBuildBudget) {
+        $BuildRoot = Join-Path ([IO.Path]::GetPathRoot($root)) 'gow-build'
+        Write-Host "@@status the project folder is too deep for Windows' path limit: building in $BuildRoot"
+    }
+}
+# A relative path (-BuildRoot build, or a portable record) belongs to this folder.
+if (-not [IO.Path]::IsPathRooted($BuildRoot)) { $BuildRoot = Join-Path $root $BuildRoot }
 # A collision must stay beside the chosen location, never silently switch back to drive C.
 $ownRoot = if ($BuildRoot.EndsWith($rootSuffix)) { $BuildRoot } else { $BuildRoot + $rootSuffix }
 if ($defaultRoot) {
@@ -44,19 +57,27 @@ if ($Toolchain -eq 'msvc' -or $oldToolchain -eq 'msvc') {
 }
 $Toolchain = 'clang'
 $bld = if ($Config -eq 'Release') { "$BuildRoot-clang" } else { "$BuildRoot-dev-clang" }
-# The recorded root can since have been taken by another copy (a test checkout configured C:\gow-build-clang): this copy
-# moves to its own root, where the next build starts from scratch (a full build)
+# The recorded root can since have been taken by another copy (a test checkout configured C:\gow-build-clang), or the
+# whole project folder moved (CMake's cache keeps absolute paths): this copy moves beside it, where the next build
+# starts from scratch (a full build, which also replaces the stale cache).
 if ((Test-ForeignCache $bld) -or (Test-ForeignCache "$bld-pgogen")) {
     if ($BuildRoot -eq $ownRoot) { throw "$bld belongs to another copy: choose a different -BuildRoot" }
-    Write-Host "build folder $bld belongs to another copy of the project: this copy now uses $ownRoot (the next build is a full one)"
+    Write-Host "build folder $bld was made by another copy of the project or before this folder moved: this copy now uses $ownRoot (the next build is a full one)"
     $bld = $bld.Replace($BuildRoot, $ownRoot)
     $BuildRoot = $ownRoot
 }
 if ((Test-ForeignCache $bld) -or (Test-ForeignCache "$bld-pgogen")) { throw "$bld belongs to another copy: choose a different -BuildRoot" }
-New-Item -ItemType Directory -Force (Split-Path $buildRootFile) | Out-Null
-if (-not (Test-Path $buildRootFile) -or [IO.File]::ReadAllText($buildRootFile).Trim() -ne $BuildRoot) {
-    [IO.File]::WriteAllText($buildRootFile, $BuildRoot)
+# The single writer for the record (the build stage calls it again once the runner exists): relative while the build
+# folder is inside the project, so the installation keeps working after being moved to another path or drive.
+function Write-BuildRootRecord {
+    New-Item -ItemType Directory -Force (Split-Path $buildRootFile) | Out-Null
+    $relative = Get-RelativePath $root $BuildRoot
+    $record = if ($relative -and -not $relative.StartsWith('..')) { $relative } else { $BuildRoot }
+    if (-not (Test-Path $buildRootFile) -or [IO.File]::ReadAllText($buildRootFile).Trim() -ne $record) {
+        [IO.File]::WriteAllText($buildRootFile, $record)
+    }
 }
+Write-BuildRootRecord
 $pgoDir = Join-Path $root "data\$Game\pgo"
 $pgoProfile = Join-Path $pgoDir 'gow.profdata'
 $runnerExe = Join-Path $bld 'ps2xRuntime\ps2EntryRunner.exe'

@@ -13,6 +13,11 @@ ScrollView {
     clip: true
 
     property var env: installer.environment()
+    // the game was built somewhere else and this folder was copied or moved since: {moved, previous}
+    property var moved: installer.movedBuild()
+    property var build: installer.buildFolder()   // {root, folder, inside, start}: where the game is built
+    property string buildNotice: ""                // result of the last Build folder -> Change
+    property string buildError: ""
     property var discs: []          // identified ISOs: [{path, label, language, kind, compatible, problems}]
     property var languages: installer.languages()
     property string xdeltaFile: ""  // the ISO patch chosen in "More options", while its base ISO is asked
@@ -33,8 +38,22 @@ ScrollView {
 
     function refresh() {
         env = installer.environment()
+        moved = installer.movedBuild()
+        build = installer.buildFolder()
         languages = installer.languages()
         scanReport = installer.discScanReport()
+    }
+    // a rebuild after a move or a launcher update: the first-play preparation on CPUs that can afford it, a plain build
+    // otherwise (as the install does)
+    function rebuildStages() {
+        return "tools,fetch,configure,recomp,sync," + (lanzador.sistema === "linux" || installer.cpuThreads() <= 4 ? "build" : "tune")
+    }
+    // why installer.setBuildRoot() refused the chosen folder
+    function errorDeCarpeta(codigo) {
+        if (codigo === "long") return Tema.t("instBuildFolderErrLong")
+        if (codigo === "foreign") return Tema.t("instBuildFolderErrForeign")
+        if (codigo === "install") return Tema.t("instBuildFolderErrInstall")
+        return Tema.t("instBuildFolderErrWrite")
     }
     function compatibleIsos() {
         var out = []
@@ -42,8 +61,7 @@ ScrollView {
             if (discs[i].compatible) out.push(discs[i].path)
         return out
     }
-    function addLog(line) {
-        var l = log.slice(-400)
+    function addLog(line) {        var l = log.slice(-400)
         l.push(line)
         log = l
     }
@@ -63,8 +81,7 @@ ScrollView {
         installer.run(stages, { isos: compatibleIsos(), config: "Release" })
     }
     function maintenance(stages) { begin(); installer.run(stages, { config: "Release" }) }
-    function pickIsos(paths) {
-        if (env.tools) { installer.identify(paths); return }
+    function pickIsos(paths) {        if (env.tools) { installer.identify(paths); return }
         pendingIsos = paths                 // reading an ISO needs the portable Python: fetch the tools first
         begin()
         installer.run("tools", {})
@@ -125,6 +142,19 @@ ScrollView {
             var paths = []
             for (var i = 0; i < selectedFiles.length; ++i) paths.push(lanzador.rutaDesdeUrl(selectedFiles[i]))
             root.pickIsos(paths)
+        }
+    }
+
+    // the build folder of this installation, as the setup's Build folder -> Change asks for it
+    FolderDialog {
+        id: dialogoCarpetaBuild
+        title: Tema.t("instBuildFolder")
+        currentFolder: lanzador.urlDesdeRuta(root.build.start)
+        onAccepted: {
+            const r = installer.setBuildRoot(lanzador.rutaDesdeUrl(selectedFolder))
+            root.buildError = r.ok ? "" : root.errorDeCarpeta(r.error)
+            root.buildNotice = r.ok ? Tema.t("instBuildFolderChanged") : ""
+            root.refresh()
         }
     }
 
@@ -216,7 +246,43 @@ ScrollView {
                     // the profile-guided pass (tune) builds the game once with the new runtime and retrains its profile in
                     // the same run: a plain build followed by the "pgo" step the Home page then recommends compiled the
                     // whole game three times. Small CPUs (4 threads or fewer) keep the plain build, as the install does.
-                    onClicked: root.maintenance("tools,fetch,configure,recomp,sync," + (lanzador.sistema === "linux" || installer.cpuThreads() <= 4 ? "build" : "tune"))
+                    onClicked: root.maintenance(root.rebuildStages())
+                }
+            }
+        }
+
+        // the project folder was copied or moved after the game was built: CMake's cache keeps absolute paths, so the
+        // compiled game still belongs to the old folder. Explain the missing game instead of showing an empty install.
+        Rectangle {
+            visible: root.moved.moved && !installer.running
+            Layout.fillWidth: true
+            implicitHeight: avisoMudado.implicitHeight + 28
+            radius: 6
+            color: "#2a1d0c"
+            border.color: Tema.aviso
+            ColumnLayout {
+                id: avisoMudado
+                anchors.fill: parent
+                anchors.margins: 14
+                spacing: 10
+                Text {
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                    color: Tema.texto
+                    font.pixelSize: 13
+                    text: Tema.t("instMoved")
+                }
+                Text {
+                    Layout.fillWidth: true
+                    elide: Text.ElideMiddle
+                    color: Tema.textoTenue
+                    font.pixelSize: 12
+                    text: root.moved.previous
+                }
+                BotonSecundario {
+                    text: Tema.t("instMovedRun")
+                    enabled: root.canInstall && !installer.running
+                    onClicked: root.maintenance(root.rebuildStages())
                 }
             }
         }
@@ -350,6 +416,68 @@ ScrollView {
                     visible: installer.running
                     onClicked: installer.cancel()
                 }
+            }
+        }
+
+        // ---------------------------------------------------------------- build folder (setup's Build folder -> Change)
+        // An installation whose build lives outside its folder (a deep project folder keeps the short D:\gow-build root)
+        // moves it here without running the setup again. Inside the installation the record is relative, so a copied or
+        // moved folder keeps its build; the build itself is not moved (CMake's cache cannot leave its folder).
+        ColumnLayout {
+            visible: lanzador.sistema !== "linux"   // linux.py always builds in data/build-linux/<game>
+            Layout.fillWidth: true
+            spacing: 6
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 10
+                Text {
+                    text: Tema.t("instBuildFolder")
+                    color: Tema.texto
+                    font.pixelSize: 13
+                    font.weight: Font.Medium
+                }
+                Text {
+                    Layout.fillWidth: true
+                    elide: Text.ElideMiddle
+                    text: root.build.root
+                    color: Tema.textoTenue
+                    font.pixelSize: 13
+                }
+                BotonSecundario {
+                    text: Tema.t("instBuildFolderChange")
+                    enabled: !installer.running && !installer.identifying
+                    onClicked: dialogoCarpetaBuild.open()
+                }
+            }
+            Text {
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                color: Tema.textoSuave
+                font.pixelSize: 12
+                text: Tema.t("instBuildFolderDesc")
+            }
+            Text {
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                color: root.build.inside ? Tema.textoSuave : Tema.aviso
+                font.pixelSize: 12
+                text: Tema.t(root.build.inside ? "instBuildFolderInside" : "instBuildFolderOutside")
+            }
+            Text {
+                visible: root.buildNotice.length > 0
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                color: Tema.bien
+                font.pixelSize: 12
+                text: root.buildNotice
+            }
+            Text {
+                visible: root.buildError.length > 0
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                color: Tema.mal
+                font.pixelSize: 12
+                text: root.buildError
             }
         }
 

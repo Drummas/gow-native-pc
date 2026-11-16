@@ -40,14 +40,23 @@ def install(build=None, success=True):
 
 
 def chosen():
+    """The recorded build folder: relative to the installation while it stays inside it (portable)."""
     return (app / 'data/build-root.txt').read_text(encoding='utf-8')
+
+
+def selected():
+    value = Path(chosen())
+    return value if value.is_absolute() else (app / value)
 
 
 try:
     subprocess.run([str(setup), '--pack', str(stage), str(packed)], check=True, timeout=20)
+    # The default build folder lives inside the installation and is recorded relative, so the folder can be moved.
+    install()
+    assert chosen() == 'build' and selected() == app / 'build'
     first = root / 'build'
     install(first)
-    assert chosen() == str(first)
+    assert selected() == first
     cache = Path(str(first) + '-clang')
     cache.mkdir()
     owner = (app / 'engine/runtime/PS2Recomp').as_posix()
@@ -58,12 +67,12 @@ try:
     card.write_bytes(b'player progress')
     second = root / 'build-\u00e1'
     install(second)
-    assert chosen() == str(second)
+    assert selected() == second
     assert (app / 'data/needs-rebuild.txt').exists() and (app / 'data/pgo-stale.txt').exists()
     assert card.read_bytes() == b'player progress'
     assert (cache / 'old-build.txt').read_text() == 'keep this build'
     install()  # An update without a new choice must preserve it, including Unicode.
-    assert chosen() == str(second)
+    assert selected() == second
     foreign = root / 'foreign'
     foreign_cache = Path(str(foreign) + '-clang')
     foreign_cache.mkdir()
@@ -72,7 +81,7 @@ try:
     install(foreign, False)
     for invalid in ('relative', str(root) + '/x' * 30, str(app), os.environ['SystemDrive'] + '\\'):
         install(invalid, False)
-        assert chosen() == str(second)
+        assert selected() == second
     assert card.read_bytes() == b'player progress'
     assert (foreign_cache / 'CMakeCache.txt').read_text().endswith('-other\n')
     subprocess.run([str(packed), '/uninstall-from', str(app), '/S'], check=True, timeout=20)

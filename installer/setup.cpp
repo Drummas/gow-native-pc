@@ -279,14 +279,14 @@ const wchar_t *const kTexts[tCount][3] = {
     {L"Builds use this path with suffixes such as -clang. Changing it requires a rebuild; previous builds and saves are kept.",
      L"A build usa este caminho com sufixos como -clang. Alterar exige recompilar; builds anteriores e saves s\u00e3o preservados.",
      L"La compilaci\u00f3n usa este camino con sufijos como -clang. Cambiarlo exige recompilar; se conservan las partidas y builds anteriores."},
-    {L"Choose a short, absolute local path (up to 40 characters), such as D:\\gow-build. Do not use the installation folder or a drive root.",
-     L"Escolha um caminho local absoluto e curto (at\u00e9 40 caracteres), como D:\\gow-build. N\u00e3o use a pasta de instala\u00e7\u00e3o nem a raiz do disco.",
-     L"Elige un camino local absoluto y corto (hasta 40 caracteres), como D:\\gow-build. No uses la carpeta de instalaci\u00f3n ni la ra\u00edz del disco."},
+    {L"The build folder stays inside the installation (build) by default, so the whole folder can be moved. Another short local path (up to 40 characters), such as D:\\gow-build, is also accepted.",
+     L"A pasta da build fica dentro da instala\u00e7\u00e3o (build) por padr\u00e3o, ent\u00e3o a pasta inteira pode ser movida. Outro caminho local curto (at\u00e9 40 caracteres), como D:\\gow-build, tamb\u00e9m \u00e9 aceito.",
+     L"La carpeta de compilaci\u00f3n queda dentro de la instalaci\u00f3n (build) por omisi\u00f3n, as\u00ed se puede mover la carpeta completa. Tambi\u00e9n se admite otro camino local corto (hasta 40 caracteres), como D:\\gow-build."},
     {L"This build location contains files from another installation or unrelated files. Choose an empty location.",
      L"Este local da build cont\u00e9m arquivos de outra instala\u00e7\u00e3o ou arquivos desconhecidos. Escolha um local vazio.",
      L"Esta ubicaci\u00f3n contiene archivos de otra instalaci\u00f3n o archivos ajenos. Elige una ubicaci\u00f3n vac\u00eda."},
-    {L"Choose the build folder (for example D:\\gow-build)", L"Escolha a pasta da build (por exemplo D:\\gow-build)",
-     L"Elige la carpeta de compilaci\u00f3n (por ejemplo D:\\gow-build)"},
+    {L"Choose the build folder (default: inside the installation)", L"Escolha a pasta da build (padr\u00e3o: dentro da instala\u00e7\u00e3o)",
+     L"Elige la carpeta de compilaci\u00f3n (por omisi\u00f3n: dentro de la instalaci\u00f3n)"},
 };
 std::wstring T(Txt t) { return kTexts[t][g_lang]; }
 
@@ -413,14 +413,19 @@ bool buildBelongsTo(const std::wstring &build, const std::wstring &dir);
 
 std::wstring recordedBuildRoot(const std::wstring &dir)
 {
+    // Default: inside the installation, so the whole folder can be copied or moved as one.
+    const auto fallback = dir + L"\\build";
     std::vector<uint8_t> bytes;
-    if (!readAll(dir + L"\\data\\build-root.txt", bytes) || bytes.empty()) return L"C:\\gow-build";
+    if (!readAll(dir + L"\\data\\build-root.txt", bytes) || bytes.empty()) return fallback;
     const int n = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, reinterpret_cast<const char *>(bytes.data()), static_cast<int>(bytes.size()), nullptr, 0);
     std::wstring value(n, L'\0');
     if (n) MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, reinterpret_cast<const char *>(bytes.data()), static_cast<int>(bytes.size()), value.data(), n);
     while (!value.empty() && (value.back() == L'\r' || value.back() == L'\n' || value.back() == L' ')) value.pop_back();
     if (!value.empty() && value.front() == 0xfeff) value.erase(0, 1);
-    return value;
+    if (value.empty()) return fallback;
+    // The record is relative while the build folder stays inside the installation (storeBuildRoot), so moving the
+    // folder keeps working. A path the player chose elsewhere is recorded absolute.
+    return fs::path(value).is_absolute() ? value : (fs::path(dir) / value).lexically_normal().wstring();
 }
 
 const wchar_t *const buildSuffixes[] = {L"", L"-clang", L"-dev", L"-dev-clang", L"-clang-pgogen", L"-dev-clang-pgogen", L"-verify-clang"};
@@ -451,7 +456,7 @@ std::wstring validateBuildRoot(const std::wstring &dir, const std::wstring &buil
     if (build.size() < 4 || build[1] != L':' || build[2] != L'\\' || canonical != build ||
         (build.size() > 40 && _wcsicmp(build.c_str(), recordedBuildRoot(dir).c_str()) != 0) ||
         build.find_first_of(L"<>\"|?*\r\n") != std::wstring::npos || build.find(L':', 2) != std::wstring::npos ||
-        build.back() == L'.' || build.back() == L' ' || within(build, install) || within(install, build)) return T(tBuildInvalid);
+        build.back() == L'.' || build.back() == L' ' || within(install, build)) return T(tBuildInvalid);
     const auto drive = GetDriveTypeW(build.substr(0, 3).c_str());
     if (drive != DRIVE_FIXED && drive != DRIVE_REMOVABLE) return T(tBuildInvalid);
     for (auto suffix : buildSuffixes) {
@@ -477,9 +482,16 @@ bool storeBuildRoot(const std::wstring &dir, const std::wstring &build)
     std::error_code ec;
     fs::create_directories(dir + L"\\data", ec);
     if (ec) return false;
-    const int n = WideCharToMultiByte(CP_UTF8, 0, build.data(), static_cast<int>(build.size()), nullptr, 0, nullptr, nullptr);
+    // Inside the installation the folder is recorded relative (the default one is build), so moving or copying the
+    // installation keeps its build. A location the player chose elsewhere is recorded absolute.
+    const auto install = fs::path(dir).lexically_normal().wstring();
+    std::wstring record = build;
+    if (_wcsnicmp(build.c_str(), install.c_str(), install.size()) == 0 && build.size() > install.size() + 1 &&
+        build[install.size()] == L'\\')
+        record = build.substr(install.size() + 1);
+    const int n = WideCharToMultiByte(CP_UTF8, 0, record.data(), static_cast<int>(record.size()), nullptr, 0, nullptr, nullptr);
     std::string bytes(n, '\0');
-    WideCharToMultiByte(CP_UTF8, 0, build.data(), static_cast<int>(build.size()), bytes.data(), n, nullptr, nullptr);
+    WideCharToMultiByte(CP_UTF8, 0, record.data(), static_cast<int>(record.size()), bytes.data(), n, nullptr, nullptr);
     const auto path = dir + L"\\data\\build-root.txt", temporary = path + L".setup-tmp";
     if (!writeAll(temporary, reinterpret_cast<const uint8_t *>(bytes.data()), bytes.size())) return false;
     if (MoveFileExW(temporary.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) return true;

@@ -130,7 +130,9 @@ def generate(root, game, build, codegen, force=False):
     runtime = root / 'engine/runtime'
     folder = data / 'recomp'
     folder.mkdir(parents=True, exist_ok=True)
-    elf = Path(read_json(data / 'languages.json')['recompile_elf']).resolve()
+    elf = Path(read_json(data / 'languages.json')['recompile_elf'])
+    # The manifest records a path relative to the project (portable), unless the disc is outside it.
+    elf = (elf if elf.is_absolute() else root / elf).resolve()
     # A hand-edited or stale language manifest must not reuse another region's map.
     executable = profile.get('executable', {})
     if executable:

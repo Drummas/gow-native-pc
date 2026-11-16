@@ -44,6 +44,17 @@ public:
     Q_INVOKABLE QString diagnosticsFramePc() const;
     // the compiled game (empty when not built yet)
     Q_INVOKABLE QString runnerPath() const;
+    // A game built in this installation's build folder from another project folder: the folder was copied or moved
+    // after the build, and CMake's cache (absolute paths) still names the old one, so the compiled game belongs to that
+    // location and is not accepted here until it is built again. {moved: bool, previous: "<old project folder>"}; a build
+    // folder the player chose outside the installation is never reported (it belongs to whoever configured it).
+    Q_INVOKABLE QVariantMap movedBuild() const;
+    // the build folder of this installation, as the setup's Build folder shows it: {root, folder, inside, start}
+    Q_INVOKABLE QVariantMap buildFolder() const;
+    // records a new build folder (setup's Build folder -> Change) without reinstalling the game: {ok, error}, error ""
+    // when recorded, else "long", "foreign", "install" or "write". An existing build is not moved: its CMake cache
+    // cannot leave the folder it was configured in, so the next build there is a full one.
+    Q_INVOKABLE QVariantMap setBuildRoot(const QString &path);
     Q_INVOKABLE void openRunnerFolder() const;
     // data/<game>/languages.json: [{language, label, edition, quality, elf}]
     Q_INVOKABLE QVariantList languages() const;
@@ -92,6 +103,7 @@ private:
     QString python() const;
     bool toolsReady() const;
     QString buildRoot() const;
+    QString installedBuildFolder() const;
     void readOutput();
 
     QString m_root;

@@ -34,7 +34,11 @@ public static class GowWindows {
 function Languages {
     $f = Join-Path $data 'languages.json'
     if (-not (Test-Path $f)) { throw 'no prepared disc: run the "discs" stage with your ISO' }
-    return Get-Content $f -Raw -Encoding UTF8 | ConvertFrom-Json
+    $manifest = Get-Content $f -Raw -Encoding UTF8 | ConvertFrom-Json
+    # prepare.py records the disc paths relative to the project, so the installation can be moved as one folder.
+    $manifest.recompile_elf = Resolve-ProjectPath $manifest.recompile_elf
+    foreach ($entry in $manifest.languages) { $entry.elf = Resolve-ProjectPath $entry.elf }
+    return $manifest
 }
 
 function Invoke-GameRecording([string]$exe, [string]$elf, [int]$seconds, [hashtable]$variables, [int]$closeTimeout = 15000) {

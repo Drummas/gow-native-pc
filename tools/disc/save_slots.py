@@ -239,7 +239,9 @@ if __name__ == '__main__':
         if manifest.is_file():
             if manifest.stat().st_size > 1024 * 1024: parser.error('Language manifest too large')
             for entry in json.loads(manifest.read_text(encoding='utf-8')).get('languages', [])[:64]:
-                elf = Path(entry['elf']).resolve()
+                elf = Path(entry['elf'])
+                # languages.json records paths relative to the project (portable), unless the disc is outside it.
+                elf = (elf if elf.is_absolute() else base.parents[1] / elf).resolve()
                 if not elf.is_relative_to(base) or not elf.is_file() or elf.stat().st_size > 16 * 1024 * 1024:
                     continue
                 if discfs.text_sha1(elf.read_bytes()) != prof['executable']['text_sha1']:

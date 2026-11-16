@@ -37,6 +37,46 @@ namespace
         return !QStandardPaths::findExecutable(program).isEmpty();
     }
 
+    // CMAKE_HOME_DIRECTORY of a CMake build folder: the absolute source folder the cache was configured from. Empty
+    // when the folder has no cache or no such entry.
+    QString cmakeSourceRoot(const QString &folder)
+    {
+        QFile cache(folder + QStringLiteral("/CMakeCache.txt"));
+        if (!cache.open(QIODevice::ReadOnly | QIODevice::Text))
+            return {};
+        QString source;
+        const QByteArray prefix("CMAKE_HOME_DIRECTORY:INTERNAL=");
+        while (!cache.atEnd())
+        {
+            const QByteArray line = cache.readLine().trimmed();
+            if (line.startsWith(prefix))
+                source = QDir::cleanPath(QDir::fromNativeSeparators(QString::fromUtf8(line.mid(prefix.size()))));
+        }
+        return source;
+    }
+
+    // where the build folder of an installation is recorded: data/build-root.txt, which the setup, the pipeline and the
+    // launcher's Install page (Build folder -> Change) write
+    QString buildRootRecordFile(const QString &root)
+    {
+#ifdef Q_OS_LINUX
+        return root + QStringLiteral("/data/build-root-linux.txt");
+#else
+        return root + QStringLiteral("/data/build-root.txt");
+#endif
+    }
+
+    // data/ records paths relative to the project (data/build-root.txt, data/<game>/languages.json) so an installation
+    // can be copied or moved as one folder; an absolute record is a path the player chose outside it.
+    QString resolvePortable(const QString &root, const QString &path)
+    {
+        if (path.isEmpty())
+            return {};
+        if (QDir::isAbsolutePath(path))
+            return QDir::cleanPath(path);
+        return QDir::cleanPath(root + QLatin1Char('/') + path);
+    }
+
     // A Python 3 that really runs: the Microsoft Store's python.exe stub in WindowsApps is on PATH without being a Python
     // (it only opens the Store), so being on PATH is not enough. Require 3.12 for the shared recompiler helpers.
     QString workingPython()
@@ -106,49 +146,42 @@ bool InstallerBackend::toolsReady() const
 #endif
 }
 
-// the CMake/Ninja build folder: a short path (the runtime's dependencies exceed MAX_PATH under long folders), chosen
-// per copy by tools/pipeline/build.ps1 and kept in data/build-root.txt (C:\gow-build, or C:\gow-build-<hash> when
-// another copy already uses that one)
+// the CMake/Ninja build folder: inside the project (build, plus suffixes such as -clang) and recorded in
+// data/build-root.txt relative to it, so the installation can be moved as one folder. It must stay short: the runtime's
+// dependencies (git checkouts) exceed MAX_PATH under long folders. A location the player chose elsewhere is recorded
+// absolute.
 QString InstallerBackend::buildRoot() const
 {
-#ifdef Q_OS_LINUX
-    QFile file(m_root + QStringLiteral("/data/build-root-linux.txt"));
-#else
-    QFile file(m_root + QStringLiteral("/data/build-root.txt"));
-#endif
+    QFile file(buildRootRecordFile(m_root));
     if (file.open(QIODevice::ReadOnly | QIODevice::Text))
     {
         const QString path = QString::fromUtf8(file.readAll()).trimmed();
         if (!path.isEmpty())
-            return QDir::fromNativeSeparators(path);
+            return resolvePortable(m_root, QDir::fromNativeSeparators(path));
     }
 #ifdef Q_OS_LINUX
     return m_root + QStringLiteral("/data/build-linux/") + m_game;
 #else
-    return QStringLiteral("C:/gow-build");
+    return m_root + QStringLiteral("/build");
 #endif
 }
 
-QString InstallerBackend::runnerPath() const
+// the build folder of this installation's game: clang builds go to <build root>-clang (build.ps1)
+QString InstallerBackend::installedBuildFolder() const
 {
-    // clang builds go to <build root>-clang (build.ps1)
     QString folder = buildRoot();
 #ifdef Q_OS_WIN
     if (installedToolchain(m_root) == QStringLiteral("clang"))
         folder += QStringLiteral("-clang");
 #endif
+    return folder;
+}
+
+QString InstallerBackend::runnerPath() const
+{
+    const QString folder = installedBuildFolder();
     // A fresh installation must not reuse the default build folder of another repository copy.
-    QFile cache(folder + QStringLiteral("/CMakeCache.txt"));
-    if (!cache.open(QIODevice::ReadOnly | QIODevice::Text))
-        return {};
-    QString source;
-    const QByteArray prefix("CMAKE_HOME_DIRECTORY:INTERNAL=");
-    while (!cache.atEnd())
-    {
-        const QByteArray line = cache.readLine().trimmed();
-        if (line.startsWith(prefix))
-            source = QDir::cleanPath(QDir::fromNativeSeparators(QString::fromUtf8(line.mid(prefix.size()))));
-    }
+    const QString source = cmakeSourceRoot(folder);
     const QString expected = QDir::cleanPath(m_root + QStringLiteral("/engine/runtime/PS2Recomp"));
 #ifdef Q_OS_WIN
     const auto pathCase = Qt::CaseInsensitive;
@@ -163,6 +196,117 @@ QString InstallerBackend::runnerPath() const
     const QString exe = folder + QStringLiteral("/ps2xRuntime/ps2EntryRunner");
 #endif
     return QFileInfo::exists(exe) ? exe : QString();
+}
+
+QVariantMap InstallerBackend::movedBuild() const
+{
+    const QVariantMap none{{QStringLiteral("moved"), false}, {QStringLiteral("previous"), QString()}};
+    const QString folder = installedBuildFolder();
+    // Only a build folder that travelled inside this installation can have moved with it: one the player chose
+    // elsewhere belongs to whichever copy configured it, and the runner check above already refuses it.
+    const QString relative = QDir(m_root).relativeFilePath(folder);
+    if (relative.startsWith(QStringLiteral("..")) || QDir::isAbsolutePath(relative))
+        return none;
+    const QString source = cmakeSourceRoot(folder);
+    // The tail is what build.ps1 configures (engine/runtime/PS2Recomp): it identifies a build of this game, and the
+    // part before it is the project folder that made it. Another tool's cache is not reported as a moved installation.
+    const QString tail = QStringLiteral("/engine/runtime/PS2Recomp");
+#ifdef Q_OS_WIN
+    const auto pathCase = Qt::CaseInsensitive;
+#else
+    const auto pathCase = Qt::CaseSensitive;
+#endif
+    if (!source.endsWith(tail, pathCase))
+        return none;
+    if (source.compare(QDir::cleanPath(m_root + tail), pathCase) == 0)
+        return none; // the build in this folder was made here
+    return {{QStringLiteral("moved"), true},
+            {QStringLiteral("previous"), QDir::toNativeSeparators(source.left(source.size() - tail.size()))}};
+}
+
+// Where this installation builds the game, as the setup's Build folder shows it: the recorded folder, the folder this
+// build goes in (clang adds its suffix), whether the record is relative to the installation (so the build travels with
+// it) and the folder to open the picker in ({root, folder, inside, start}).
+QVariantMap InstallerBackend::buildFolder() const
+{
+    const QString root = buildRoot();
+    const QFileInfo info(root);
+    const QString relative = QDir(m_root).relativeFilePath(root);
+    return {{QStringLiteral("root"), QDir::toNativeSeparators(root)},
+            {QStringLiteral("folder"), QDir::toNativeSeparators(installedBuildFolder())},
+            {QStringLiteral("inside"), !relative.startsWith(QStringLiteral("..")) && !QDir::isAbsolutePath(relative)},
+            {QStringLiteral("start"), QDir::toNativeSeparators(info.isDir() ? info.absolutePath() : m_root)}};
+}
+
+// Records a new build folder for this installation, as the setup's Build folder -> Change does, without reinstalling: an
+// existing build is not moved (CMake's cache cannot leave the folder it was configured in), so the next build there is a
+// fresh one. {ok, error}: error is "" once recorded, else "long" (too deep for the runtime's dependencies), "foreign"
+// (a cache made by another copy, which CMake refuses), "install" (the installation folder itself) or "write".
+QVariantMap InstallerBackend::setBuildRoot(const QString &path)
+{
+    const auto refused = [](const QString &reason) {
+        return QVariantMap{{QStringLiteral("ok"), false}, {QStringLiteral("error"), reason}};
+    };
+#ifdef Q_OS_LINUX
+    // tools/pipeline/linux.py builds in data/build-linux/<game> and records only that folder, so a chosen one would be
+    // ignored by the next build
+    Q_UNUSED(path)
+    return refused(QStringLiteral("unsupported"));
+#else
+    // the pipeline's budget for the folder it picks by itself (tools/pipeline/modules/context.ps1,
+    // $portableBuildBudget): the runtime's CMake dependencies need room under Windows' 260-character path limit
+    constexpr int kBuildRootBudget = 80;
+#ifdef Q_OS_WIN
+    const auto pathCase = Qt::CaseInsensitive;
+#else
+    const auto pathCase = Qt::CaseSensitive;
+#endif
+    QString chosen = QDir::cleanPath(QDir::fromNativeSeparators(path.trimmed()));
+    if (chosen.isEmpty() || !QDir::isAbsolutePath(chosen))
+        return refused(QStringLiteral("root"));
+    // A build folder of this installation picked instead of its parent (build-clang rather than build): the parent is
+    // the folder to record, or the next build would go to build-clang-clang.
+    for (const QString &suffix : {QStringLiteral("-dev-clang-pgogen"), QStringLiteral("-clang-pgogen"),
+                                  QStringLiteral("-dev-clang"), QStringLiteral("-verify-clang"), QStringLiteral("-clang")})
+    {
+        if (chosen.endsWith(suffix) && QFileInfo::exists(chosen + QStringLiteral("/CMakeCache.txt")))
+        {
+            chosen = chosen.left(chosen.size() - suffix.size());
+            break;
+        }
+    }
+    // As in setup: a drive root becomes a named folder, never the drive itself.
+    if (QDir(chosen).isRoot())
+        chosen = QDir(chosen).absoluteFilePath(QStringLiteral("gow-build"));
+    // the installation itself is not a build folder: its files belong beside data/ and engine/, not among them
+    if (QString::compare(QDir::cleanPath(chosen), QDir::cleanPath(m_root), pathCase) == 0)
+        return refused(QStringLiteral("install"));
+    if ((chosen + QStringLiteral("-dev-clang")).size() > kBuildRootBudget)
+        return refused(QStringLiteral("long"));
+    // CMake refuses a cache configured from another source folder: say so now, as the setup does, instead of failing the
+    // next build
+    const QString expected = QDir::cleanPath(m_root + QStringLiteral("/engine/runtime/PS2Recomp"));
+    for (const QString &suffix : {QStringLiteral(""), QStringLiteral("-clang"), QStringLiteral("-dev-clang")})
+    {
+        const QString source = cmakeSourceRoot(chosen + suffix);
+        if (!source.isEmpty() && source.compare(expected, pathCase) != 0)
+            return refused(QStringLiteral("foreign"));
+    }
+    QDir dir;
+    if (!dir.mkpath(chosen) || !QFileInfo(chosen).isDir() || !QFileInfo(chosen).isWritable())
+        return refused(QStringLiteral("write"));
+    // Inside the installation it is recorded relative to it (as the setup and the pipeline do), so copying or moving the
+    // folder keeps its build; a folder elsewhere is recorded absolute.
+    const QString relative = QDir(m_root).relativeFilePath(chosen);
+    const QString record = !relative.startsWith(QStringLiteral("..")) && !QDir::isAbsolutePath(relative) ? relative : chosen;
+    const QByteArray bytes = record.toUtf8();
+    QDir().mkpath(m_root + QStringLiteral("/data"));
+    QFile file(buildRootRecordFile(m_root));
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text) || file.write(bytes) != bytes.size())
+        return refused(QStringLiteral("write"));
+    file.close();
+    return {{QStringLiteral("ok"), true}, {QStringLiteral("error"), QString()}};
+#endif
 }
 
 QVariantMap InstallerBackend::environment() const
@@ -217,11 +361,15 @@ QVariantList InstallerBackend::languages() const
         ? QJsonDocument::fromJson(file.readAll()).object() : QJsonObject();
     QVariantList out;
     for (const QJsonValue &v : manifest.value(QStringLiteral("languages")).toArray())
-        if (QFileInfo::exists(v.toObject().value(QStringLiteral("elf")).toString())) {
-            auto entry = v.toObject().toVariantMap();
+    {
+        auto object = v.toObject();
+        object.insert(QStringLiteral("elf"), resolvePortable(m_root, object.value(QStringLiteral("elf")).toString()));
+        if (QFileInfo::exists(object.value(QStringLiteral("elf")).toString())) {
+            auto entry = object.toVariantMap();
             entry.insert(QStringLiteral("runner"), runnerPath());
             out << entry;
         }
+    }
     out.append(RegionalInstallations::read(m_root, m_game));
     return out;
 }
@@ -265,7 +413,7 @@ QString InstallerBackend::recompileElf() const
     QFile file(m_root + QStringLiteral("/data/") + m_game + QStringLiteral("/languages.json"));
     if (!file.open(QIODevice::ReadOnly))
         return {};
-    return QJsonDocument::fromJson(file.readAll()).object().value(QStringLiteral("recompile_elf")).toString();
+    return resolvePortable(m_root, QJsonDocument::fromJson(file.readAll()).object().value(QStringLiteral("recompile_elf")).toString());
 }
 
 void InstallerBackend::identify(const QStringList &paths)

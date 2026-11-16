@@ -15,7 +15,7 @@ index 0f2b2a7..bcdb909 100644
  
  #if defined(__ANDROID__)
  #include <android/log.h>
-@@ -151,6 +153,40 @@ namespace
+@@ -151,6 +153,42 @@ namespace
              std::cout << "Using argv boot path" << std::endl;
              return std::filesystem::path(argv[1]);
          }
@@ -33,8 +33,10 @@ index 0f2b2a7..bcdb909 100644
 +                std::freopen("standalone.log", "a", stdout);
 +                std::freopen("standalone.log", "a", stderr);
 +                if (!elf.empty() && elf.back() == '\r') elf.pop_back();
-+                const auto path = std::filesystem::u8path(elf);
-+                if (!path.is_absolute() || !std::filesystem::is_regular_file(path))
++                auto path = std::filesystem::u8path(elf);
++                // The launcher records the disc relative to this folder so a copied installation stays portable.
++                if (path.is_relative()) path = folder / path;
++                if (!std::filesystem::is_regular_file(path))
 +                    throw std::runtime_error("The disc recorded in gow-native.boot is missing. Open the launcher and select it again.");
 +                while (std::getline(boot, line))
 +                {

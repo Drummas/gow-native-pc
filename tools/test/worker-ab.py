@@ -133,8 +133,12 @@ def main():
     root = Path(__file__).resolve().parents[2]
     profile = json.loads(subprocess.check_output([sys.executable, "-I", str(root / "tools/pipeline/profile.py"), a.game]))
     data = root / "data" / a.game
-    runner = (a.runner or Path((root / "data/build-root.txt").read_text().strip() + "-clang") / "ps2xRuntime/ps2EntryRunner.exe").resolve()
-    elf = (a.elf or Path(json.loads((data / "languages.json").read_text(encoding="utf-8-sig"))["recompile_elf"])).resolve()
+    # Records are relative to the project (portable), unless the path is outside it.
+    recorded = Path((root / "data/build-root.txt").read_text().strip())
+    build = recorded if recorded.is_absolute() else root / recorded
+    runner = (a.runner or Path(str(build) + "-clang") / "ps2xRuntime/ps2EntryRunner.exe").resolve()
+    elf_path = a.elf or Path(json.loads((data / "languages.json").read_text(encoding="utf-8-sig"))["recompile_elf"])
+    elf = (elf_path if elf_path.is_absolute() else root / elf_path).resolve()
     helper = (a.helper or root / "launcher/build-clang/deploy/gow-session.exe").resolve()
     baseline = a.baseline_runner.resolve() if a.baseline_runner else runner
     for f in (runner, baseline, elf, helper):

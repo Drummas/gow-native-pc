@@ -48,6 +48,16 @@ def say(msg):
     print(msg, flush=True)
 
 
+def portable(path):
+    """The path as recorded in languages.json: relative to the project, so an installation can be copied or moved as one
+    folder. Paths outside the project (or on another drive) stay absolute."""
+    try:
+        relative = os.path.relpath(path, ROOT)
+    except ValueError:  # another drive on Windows
+        return os.path.abspath(path)
+    return os.path.abspath(path) if relative.startswith('..') else relative.replace(os.sep, '/')
+
+
 def junction(link, target):
     os.makedirs(target, exist_ok=True)
     if os.path.lexists(link):
@@ -308,11 +318,11 @@ def main():
         except (OSError, ValueError, KeyError) as error:
             say(f'  Save previews unavailable: {error}')
         entry = {'language': f['language'], 'label': f['label'], 'edition': f['edition'], 'quality': quality,
-                 'elf': os.path.abspath(os.path.join(folder, elf_name))}
+                 'elf': portable(os.path.join(folder, elf_name))}
         rank = {'original': 3, 'full': 2, 'standalone': 1}
         if f['language'] not in languages or rank[quality] > rank[languages[f['language']]['quality']]:
             languages[f['language']] = entry
-    recompile = os.path.abspath(os.path.join((originals or found)[0]['folder'], elf_name))
+    recompile = portable(os.path.join((originals or found)[0]['folder'], elf_name))
     manifest = {'game': a.game, 'title': prof['title'], 'recompile_elf': recompile,
                 'languages': sorted(languages.values(), key=lambda e: e['language'])}
     json.dump(manifest, open(os.path.join(base, 'languages.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)

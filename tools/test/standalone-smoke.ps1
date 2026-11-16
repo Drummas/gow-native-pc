@@ -6,11 +6,14 @@ $python = Join-Path $root 'data/_tools/python/python.exe'
 $profile = (& $python -I (Join-Path $root 'tools/pipeline/profile.py') $Game | Out-String | ConvertFrom-Json)
 if ($LASTEXITCODE -ne 0) { throw 'Cannot load game profile' }
 $data = Join-Path $root "data/$Game"
-$build = (Get-Content (Join-Path $root 'data/build-root.txt') -Raw).Trim() + '-clang'
+$build = (Get-Content (Join-Path $root 'data/build-root.txt') -Raw).Trim()
+if (-not [IO.Path]::IsPathRooted($build)) { $build = Join-Path $root $build }
+$build += '-clang'
 $runner = Join-Path $build 'ps2xRuntime/ps2EntryRunner.exe'
 $boot = Join-Path (Split-Path $runner) 'gow-native.boot'
 $originalBoot = [IO.File]::ReadAllBytes($boot)
 $elf = (Get-Content (Join-Path $data 'languages.json') -Raw -Encoding UTF8 | ConvertFrom-Json).recompile_elf
+if ($elf -and -not [IO.Path]::IsPathRooted($elf)) { $elf = Join-Path $root $elf }
 $output = Join-Path $data ('logs/standalone-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
 New-Item -ItemType Directory -Path $output | Out-Null
 . (Join-Path $root 'tools/pipeline/modules/process.ps1')

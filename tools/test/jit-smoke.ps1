@@ -7,9 +7,11 @@ param([ValidateSet('hybrid', 'jit', 'calls')][string]$Mode = 'hybrid',
 $ErrorActionPreference = 'Stop'
 $root = Split-Path (Split-Path $PSScriptRoot)
 $build = (Get-Content (Join-Path $root 'data/build-root.txt') -Raw).Trim()
+if (-not [IO.Path]::IsPathRooted($build)) { $build = Join-Path $root $build }
 if ((Get-Content (Join-Path $root 'data/toolchain.txt') -Raw).Trim() -eq 'clang') { $build += '-clang' }
 $data = Join-Path $root "data/$Game"
 $elf = (Get-Content (Join-Path $data 'languages.json') -Raw | ConvertFrom-Json).recompile_elf
+if ($elf -and -not [IO.Path]::IsPathRooted($elf)) { $elf = Join-Path $root $elf }
 if ($DiscElf) { $elf = (Resolve-Path -LiteralPath $DiscElf).Path }
 $python = Join-Path $root 'data/_tools/python/python.exe'
 $profile = (& $python -I (Join-Path $root 'tools/pipeline/profile.py') $Game | Out-String | ConvertFrom-Json)
@@ -47,6 +49,8 @@ if ($Standalone) {
     $boot = Get-Content (Join-Path $build 'ps2xRuntime/gow-native.boot')
     if ($boot[0] -ne 'GOW_NATIVE_BOOT_V1') { throw 'Missing or invalid standalone profile' }
     $elf = $boot[1]
+    # The recorded disc is relative to the runner's folder (patch 25); resolve it for the summary.
+    if ($elf -and -not [IO.Path]::IsPathRooted($elf)) { $elf = [IO.Path]::GetFullPath((Join-Path (Join-Path $build 'ps2xRuntime') $elf)) }
 } else { $start.ArgumentList = ('"' + $elf + '"') }
 $p = Start-Process @start
 $null = $p.Handle

@@ -111,7 +111,9 @@ class Pipeline:
         run([sys.executable, '-I', ROOT / script, *args])
 
     def elf(self):
-        return Path(json.loads((self.data / 'languages.json').read_text(encoding='utf-8'))['recompile_elf'])
+        # The manifest records a path relative to the project (portable), unless the disc is outside it.
+        recorded = Path(json.loads((self.data / 'languages.json').read_text(encoding='utf-8'))['recompile_elf'])
+        return recorded if recorded.is_absolute() else ROOT / recorded
 
     def configure(self):
         brand = self.profile['runtime'].get('branding_image')
@@ -178,7 +180,8 @@ class Pipeline:
             step('build the game (Linux, Clang)' if stage == 'build' else 'native (Linux recorded VU1)')
             self.configure()
             self.compile('ps2EntryRunner')
-            atomic_text(ROOT / 'data/build-root-linux.txt', str(self.build) + '\n')
+            # Relative to the project: the checkout and its build can be moved together.
+            atomic_text(ROOT / 'data/build-root-linux.txt', self.build.relative_to(ROOT).as_posix() + '\n')
             if stage == 'native':
                 atomic_text(self.data / 'native.stamp', 'Linux VU1 build complete\n')
             if 'fetch' in self.args.stages:

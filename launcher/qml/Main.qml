@@ -153,6 +153,9 @@ ApplicationWindow {
     // are read again by refrescarInstalacion() when a build finishes and before playing.
     property var idiomasJuego: installer.languages()
     property string ejecutableJuego: installer.runnerPath()
+    // {moved, previous}: the game was built in another folder and this one was copied or moved since (CMake's cache keeps
+    // absolute paths), so it must be built again here. Shown instead of a bare "not installed".
+    property var instalacionMovida: installer.movedBuild()
     property bool pgoAtivo: installer.pgoApplied() // the installed build uses the profile-guided optimisation
     readonly property bool listo: idiomasJuego.some(function(e) { return !!e.runner })
     // gow-native-pc: launcher updates (GitHub Releases, tools/pipeline/update.ps1). A newer release than this launcher is
@@ -195,6 +198,7 @@ ApplicationWindow {
     function refrescarInstalacion() {
         idiomasJuego = installer.languages()
         ejecutableJuego = installer.runnerPath()
+        instalacionMovida = installer.movedBuild()
         pgoAtivo = installer.pgoApplied()
     }
     Connections {
@@ -697,7 +701,9 @@ ApplicationWindow {
                         }
                         Text {
                             Layout.fillWidth: true
-                            text: lanzador.jugando ? Tema.t("jugandoEstado") : (ventana.listo ? Tema.t("listo") : Tema.t("noInstalado"))
+                            text: lanzador.jugando ? Tema.t("jugandoEstado")
+                                : (ventana.listo ? Tema.t("listo")
+                                : (ventana.instalacionMovida.moved ? Tema.t("instalacionMovida") : Tema.t("noInstalado")))
                             color: Tema.texto
                             font.pixelSize: 13
                             font.weight: Font.Medium

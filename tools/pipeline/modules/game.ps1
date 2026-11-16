@@ -294,7 +294,7 @@ function Build-Game([string]$dir = $bld) {
     }
     if ($dir -eq $bld) {
         [IO.File]::WriteAllText($toolchainFile, 'clang')
-        [IO.File]::WriteAllText($buildRootFile, $BuildRoot)
+        Write-BuildRootRecord
         # a launcher update that changed the runtime patches asked for a rebuild (tools/pipeline/update.ps1): done once the
         # game was built from the runtime this run fetched (build, tune, optimize, pgo all end here), not by a build of
         # the runtime already on disk
@@ -304,8 +304,11 @@ function Build-Game([string]$dir = $bld) {
     $bootFile = Join-Path $dir 'ps2xRuntime\gow-native.boot'
     $elf = (Languages).recompile_elf
     if ($dir -eq $bld -and $elf -and (Test-Path $elf) -and -not (Test-Path $bootFile)) {
-        # A launcher session replaces these defaults with the selected disc and runtime settings.
-        $bootText = "GOW_NATIVE_BOOT_V1`n$elf`nGOW_VU1N_X64=1`nGOW_VU1_CAPTURE_MISSES=1`nGOW_VU1_CAPTURA=$vu1`nPS2X_GS_WORKER=1`nGOW_GS_FINISH_ASINCRONO=1`nGOW_GS_EARLY_FINISH=1`nTOBIICHI_PANORAMICO=16:9`n"
+        # A launcher session replaces these defaults with the selected disc and runtime settings. The disc is recorded
+        # relative to the runner's folder (patch 25 resolves it there) so a copied installation still finds it.
+        $bootElf = Get-RelativePath (Join-Path $dir 'ps2xRuntime') $elf
+        if (-not $bootElf) { $bootElf = $elf }
+        $bootText = "GOW_NATIVE_BOOT_V1`n$bootElf`nGOW_VU1N_X64=1`nGOW_VU1_CAPTURE_MISSES=1`nGOW_VU1_CAPTURA=$vu1`nPS2X_GS_WORKER=1`nGOW_GS_FINISH_ASINCRONO=1`nGOW_GS_EARLY_FINISH=1`nTOBIICHI_PANORAMICO=16:9`n"
         [IO.File]::WriteAllText($bootFile, $bootText, (New-Object Text.UTF8Encoding($false)))
     }
     # the background VU1 compiler (launcher: "Compile new areas while playing") builds modules with this compiler and the

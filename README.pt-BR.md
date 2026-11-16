@@ -220,11 +220,19 @@ extraída em `data/gow1/discs/`; mantê-la no mesmo disco ocupa o tamanho dela *
 Ferramentas baixadas, o runtime, idiomas extras, a compilação de treino do PGO e o SDK do Qt para desenvolver o
 launcher também ocupam espaço. A ISO não é necessária para jogar depois da preparação; guarde sua cópia à parte.
 
-As compilações usam por padrão uma pasta curta no `C:`: `C:\gow-build-clang` para clang Release (a compilação de treino
-do PGO usa `C:\gow-build-clang-pgogen`). Se outra cópia já usar essa pasta, o pipeline escolhe `C:\gow-build-<hash>-clang`.
-O caminho fica registrado em `data/build-root.txt`; o launcher o lê automaticamente.
-No setup, use **Pasta da build → Alterar** para escolher um caminho local curto, como `D:\gow-build`
+Tudo o que o jogo precisa fica na pasta do projeto: a compilação vai para `build-clang` dentro dela no clang Release
+(a compilação de treino do PGO usa `build-clang-pgogen`), então a pasta inteira pode ser copiada ou movida para outro
+caminho ou disco. `data/build-root.txt` registra esse caminho de forma relativa, e `data/<id>/languages.json` e o
+`gow-native.boot` do runner registram o disco preparado do mesmo jeito, então a instalação continua portátil. Uma pasta
+de projeto muito profunda (as dependências do runtime podem passar do limite de caminho do Windows) mantém a pasta curta
+`C:\gow-build` e a registra absoluta.
+O cache do próprio CMake guarda caminhos absolutos, então uma instalação copiada ou movida compila de novo na pasta nova
+no próximo **Instalar e compilar** (uma build completa; discos preparados, saves e a pasta da build anterior ficam).
+No setup, use **Pasta da build → Alterar** para manter a build em outro local, como `D:\gow-build`
 (até 40 caracteres). A mesma opção aparece ao atualizar uma instalação existente.
+A aba Instalar do launcher tem a mesma **Pasta da build → Alterar**, então uma instalação cuja build fica fora da pasta
+(a pasta curta `C:\gow-build`) pode movê-la para dentro do projeto sem rodar o setup de novo; uma pasta dentro do
+projeto volta a ser registrada relativa, e a instalação continua portátil.
 Alterar exige compilar novamente; os saves e a build anterior são preservados.
 O instalador não move caches compilados do CMake. Atualizar sem escolher outra pasta mantém o caminho atual.
 
