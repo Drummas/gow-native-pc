@@ -23,6 +23,34 @@ diziam v0.0.x. Agora são v0.1.0, v0.2.0, v0.3.0 e v0.3.1, com os mesmos arquivo
 cima da instalação atual**; daí em diante as atualizações automáticas voltam a funcionar. A compilação do jogo, os
 discos e os saves são mantidos.
 
+## [v0.7.0] — 2026-11-16
+
+A instalação agora vai junto com a pasta: o launcher, o setup e o pipeline gravam os caminhos relativos ao projeto,
+então copiar ou mover uma instalação não perde mais a pasta de compilação, o disco nem os idiomas. É preciso
+recompilar o jogo (o patch 25 mudou como o runner encontra o disco que recebe).
+
+### Instalação portátil
+- A pasta de compilação (`data/build-root.txt`) é gravada relativa ao projeto, e o launcher, o desinstalador e o
+  pipeline a resolvem ali: a mesma instalação copiada para outra pasta, ou com a pasta renomeada, mantém a compilação.
+  Um caminho fora do projeto (o atalho `C:\gow-build` para caminhos longos, ou outro disco) continua absoluto.
+- O disco que o launcher grava em `gow-native.boot` e os caminhos de ELF em `data/<game>/languages.json` são gravados do
+  mesmo jeito: o disco relativo à pasta do runner, resolvido pelo `gow-session` (patch 25), e por isso o jogo precisa ser
+  recompilado. Uma instalação movida inicia o próprio disco em vez de dizer que ele está ausente.
+- O cache do CMake continua não sendo portátil, então o pipeline confere a pasta de origem do cache: uma instalação
+  copiada ou movida compila de novo em `build-<hash>` e mantém a pasta de compilação anterior e os dados do jogador.
+
+### Launcher
+- **Instalação movida:** uma pasta de compilação dentro da instalação cujo cache do CMake aponta para outra pasta do
+  projeto é reportada como movida. A página Instalar explica e oferece a recompilação, e a linha de estado da tela
+  inicial diz isso em vez de "não instalado", que era como uma instalação copiada aparecia.
+- **Pasta de compilação > Alterar:** uma instalação existente pode apontar a compilação para a pasta do projeto sem
+  rodar o setup de novo. Dentro da instalação o registro volta a ser relativo; fora dela, absoluto. O seletor recusa a
+  própria pasta da instalação, uma base cujo caminho de compilação passe do orçamento do pipeline e um cache feito por
+  outra cópia, e converte um `build-clang` escolhido de volta para `build`. Ele nunca move uma compilação existente,
+  porque o cache do CMake não sai da pasta. Só no Windows: no Linux o pipeline sempre compila em `data/build-linux/<game>`.
+- Os textos novos existem nos nove idiomas do launcher (inglês, português, espanhol, francês, alemão, italiano, russo,
+  chinês simplificado e turco).
+
 ## [v0.6.1] — 2026-11-13
 
 Versão estável da série 0.6: tudo da v0.6.0-rc.1 mais as mudanças abaixo. É preciso recompilar o jogo (patches novos

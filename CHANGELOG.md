@@ -21,6 +21,34 @@ said v0.0.x. They are now v0.1.0, v0.2.0, v0.3.0 and v0.3.1, with the same files
 releases (it reports 1.0.0 to 3.0.1) does not see 0.x releases as newer: **install v0.4.0 once from its setup over the
 existing installation**; automatic updates work again from there on. Your game build, discs and saves are kept.
 
+## [v0.7.0] — 2026-11-16
+
+The installation now moves with its folder: the launcher, the setup and the pipeline record their paths relative to
+the project, so copying or moving an installation no longer loses its build folder, its disc or its languages.
+Rebuilding the game is required (patch 25 changed how the runner finds the disc it is given).
+
+### Portable installation
+- The build folder (`data/build-root.txt`) is recorded relative to the project, and the launcher, the uninstaller and
+  the pipeline resolve it there: the same installation copied to another folder, or renaming that folder, keeps its
+  build. A path outside the project (the short `C:\gow-build` fallback for deep paths, or another drive) stays absolute.
+- The disc the launcher records in `gow-native.boot` and the ELF paths in `data/<game>/languages.json` are recorded the
+  same way: the disc relative to the runner's folder, resolved by `gow-session` (patch 25), which is why the game has to
+  be rebuilt. A moved installation boots its own disc instead of reporting it missing.
+- CMake's cache is still not portable, so the pipeline checks the cache's source folder: a copied or moved installation
+  builds again in `build-<hash>` and keeps the previous build folder and the player data untouched.
+
+### Launcher
+- **Moved installation:** a build folder inside the installation whose CMake cache names another project folder is
+  reported as moved. The Install page explains it and offers the rebuild, and the Home status line says so instead of
+  "not installed", which is what a copied installation used to look like.
+- **Build folder > Change:** an existing installation can point its build at the project folder without rerunning the
+  setup. Inside the installation the record is relative again; outside it, absolute. The picker refuses the
+  installation folder itself, a base whose build path would exceed the pipeline's budget and a cache made by another
+  copy, and maps a picked `build-clang` back to `build`. It never moves an existing build, because CMake's cache cannot
+  leave its folder. Windows only: on Linux the pipeline always builds under `data/build-linux/<game>`.
+- The new texts exist in the nine launcher languages (English, Portuguese, Spanish, French, German, Italian, Russian,
+  Simplified Chinese and Turkish).
+
 ## [v0.6.1] — 2026-11-13
 
 Stable release of the 0.6 series: everything in v0.6.0-rc.1 plus the changes below. Rebuilding the game is required
