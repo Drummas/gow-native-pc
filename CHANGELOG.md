@@ -21,6 +21,26 @@ said v0.0.x. They are now v0.1.0, v0.2.0, v0.3.0 and v0.3.1, with the same files
 releases (it reports 1.0.0 to 3.0.1) does not see 0.x releases as newer: **install v0.4.0 once from its setup over the
 existing installation**; automatic updates work again from there on. Your game build, discs and saves are kept.
 
+## [v0.7.2] — 2026-11-17
+
+Renaming the installation folder no longer makes the launcher report that the build has moved. Its records were
+already relative; CMake's cache is not, and it still named the folder the installation had before the rename.
+
+### Renamed installation
+- **A renamed folder keeps playing.** The launcher accepts a build whose CMake cache names a folder that is no longer a
+  project: that is the installation's own name before the rename, not another copy. The home status line and the Install
+  page stop reporting a moved installation, and the game plays.
+- **A copy is still reported.** When the folder the cache names still holds a project, the build belongs to that copy:
+  it stays reported as moved and the copy rebuilds in `build-<hash>`, as before.
+- **The mods manager** applies the same rule to a runner it is asked to use, so a mod operation on a renamed
+  installation no longer fails with "belongs to a different source tree".
+
+### Development
+- The rule lives in one place, `launcher/src/build_cache.h`, shared by the runner check, the moved-installation check,
+  the build-folder picker and the regional builds. `gow_build_cache_tests` covers a renamed installation and a copy.
+  `records.py`'s `source_belongs()` applies it in Python.
+- The next build after a rename still starts in `build-<hash>` (CMake cannot move a cache), and records the new folder.
+
 ## [v0.7.1] — 2026-11-16
 
 Every path an installation records about itself is now relative, including the card, the saves folder, the texture pack

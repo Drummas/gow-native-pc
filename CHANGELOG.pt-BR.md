@@ -23,6 +23,26 @@ diziam v0.0.x. Agora são v0.1.0, v0.2.0, v0.3.0 e v0.3.1, com os mesmos arquivo
 cima da instalação atual**; daí em diante as atualizações automáticas voltam a funcionar. A compilação do jogo, os
 discos e os saves são mantidos.
 
+## [v0.7.2] — 2026-11-17
+
+Renomear a pasta da instalação não faz mais o launcher avisar que a compilação mudou de lugar. Os registros dela já
+eram relativos; o cache do CMake não é, e ele continuava apontando para o nome que a pasta tinha antes.
+
+### Instalação renomeada
+- **Uma pasta renomeada continua jogando.** O launcher aceita uma compilação cujo cache do CMake aponta para uma pasta
+  que não é mais um projeto: é o nome da própria instalação antes do rename, não outra cópia. A linha de status da Home e
+  a página Install deixam de reportar instalação movida, e o jogo abre.
+- **Uma cópia continua sendo reportada.** Quando a pasta que o cache aponta ainda tem um projeto, a compilação é daquela
+  cópia: ela continua sendo reportada como movida e a cópia recompila em `build-<hash>`, como antes.
+- **O gerenciador de mods** aplica a mesma regra ao runner que recebe, então uma operação de mod numa instalação
+  renomeada não falha mais com "belongs to a different source tree".
+
+### Desenvolvimento
+- A regra fica num só lugar, `launcher/src/build_cache.h`, usado pela checagem do runner, pela de instalação movida, pelo
+  seletor de pasta de compilação e pelas compilações regionais. `gow_build_cache_tests` cobre uma instalação renomeada e
+  uma cópia. O `source_belongs()` de `records.py` aplica a mesma regra em Python.
+- A primeira compilação depois do rename ainda começa em `build-<hash>` (o CMake não move um cache) e grava a pasta nova.
+
 ## [v0.7.1] — 2026-11-16
 
 Todo caminho que a instalação guarda sobre si mesma agora é relativo, incluindo o cartão de memória, a pasta de saves,
