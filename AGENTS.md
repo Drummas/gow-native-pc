@@ -76,8 +76,13 @@ pipeline; a reader resolves against the root of the installation it reads, never
 property in every new consumer.
 A build folder inside the installation whose CMake cache names another project folder is reported as a moved
 installation (`InstallerBackend::movedBuild`): the Install page explains it and offers the rebuild, and the home status
-line says so instead of "not installed". Only a build folder inside the installation is reported; one the player chose
-elsewhere belongs to whichever copy configured it and stays rejected by the runner ownership check.
+line says so instead of "not installed". `launcher/src/build_cache.h` (`BuildCache::belongsTo`) decides that ownership:
+the cache keeps its absolute source folder, so a **renamed** installation — the folder the cache names is not a project
+any more — keeps its build and plays it, while a copy, whose original is still there, is reported and rebuilds in
+`build-<hash>`. Only a build folder inside the installation is reported; one the player chose elsewhere belongs to
+whichever copy configured it and stays rejected by the runner ownership check.
+`tools/test/build-cache-test.cpp` (`gow_build_cache_tests`, like `gow_region_tests` an explicit target) covers both
+cases, and `records.py`'s `source_belongs()` applies the same rule to the mods manager.
 The Install page writes that same record (`InstallerBackend::setBuildRoot`, the setup's Build folder → Change), so an
 existing installation can move its build into the project folder without the setup: inside the installation it is
 recorded relative again, outside it absolute. The picker refuses the installation folder itself, a base beyond the

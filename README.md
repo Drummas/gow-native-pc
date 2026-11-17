@@ -227,8 +227,10 @@ PGO training build uses `build-clang-pgogen`), so the whole folder can be copied
 and the runner's `gow-native.boot` record the prepared disc the same way, as well as the memory card, the saves folder and
 the texture pack it remembers, so the installation stays portable. A very deep project folder (the runtime's
 dependencies can exceed Windows' path limit) keeps the short `C:\gow-build` root and records that absolute.
-CMake's own cache holds absolute paths, so an installation that was copied or moved rebuilds in its new folder on the
-next **Install and build** (a full build; prepared discs, saves and the previous build folder are kept).
+CMake's own cache holds absolute paths, so a *copied* installation rebuilds in its new folder on the next **Install and
+build** (a full build; prepared discs, saves and the previous build folder are kept). A folder you only *rename* keeps
+playing as it is: the launcher recognises its build (the cache still names the old folder, which is not a project any
+more), and the next build after that starts in `build-<hash>`.
 In setup, use **Build folder → Change** to keep the build somewhere else, such as `D:\gow-build`
 (up to 40 characters). The same choice is available when updating an existing installation.
 The launcher's Install tab has the same **Build folder → Change**, so an installation whose build sits outside its

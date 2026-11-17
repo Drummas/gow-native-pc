@@ -1,4 +1,5 @@
 #include "installer_backend.h"
+#include "build_cache.h"
 #include "regional_installations.h"
 
 #include <QCoreApplication>
@@ -35,24 +36,6 @@ namespace
     bool onPath(const QString &program)
     {
         return !QStandardPaths::findExecutable(program).isEmpty();
-    }
-
-    // CMAKE_HOME_DIRECTORY of a CMake build folder: the absolute source folder the cache was configured from. Empty
-    // when the folder has no cache or no such entry.
-    QString cmakeSourceRoot(const QString &folder)
-    {
-        QFile cache(folder + QStringLiteral("/CMakeCache.txt"));
-        if (!cache.open(QIODevice::ReadOnly | QIODevice::Text))
-            return {};
-        QString source;
-        const QByteArray prefix("CMAKE_HOME_DIRECTORY:INTERNAL=");
-        while (!cache.atEnd())
-        {
-            const QByteArray line = cache.readLine().trimmed();
-            if (line.startsWith(prefix))
-                source = QDir::cleanPath(QDir::fromNativeSeparators(QString::fromUtf8(line.mid(prefix.size()))));
-        }
-        return source;
     }
 
     // where the build folder of an installation is recorded: data/build-root.txt, which the setup, the pipeline and the
@@ -180,15 +163,9 @@ QString InstallerBackend::installedBuildFolder() const
 QString InstallerBackend::runnerPath() const
 {
     const QString folder = installedBuildFolder();
-    // A fresh installation must not reuse the default build folder of another repository copy.
-    const QString source = cmakeSourceRoot(folder);
-    const QString expected = QDir::cleanPath(m_root + QStringLiteral("/engine/runtime/PS2Recomp"));
-#ifdef Q_OS_WIN
-    const auto pathCase = Qt::CaseInsensitive;
-#else
-    const auto pathCase = Qt::CaseSensitive;
-#endif
-    if (source.compare(expected, pathCase) != 0)
+    // A fresh installation must not reuse the default build folder of another repository copy. A build made before this
+    // folder was renamed is still this installation's: BuildCache accepts the name the folder had then.
+    if (!BuildCache::belongsTo(BuildCache::sourceFolder(folder), m_root))
         return {};
 #ifdef Q_OS_WIN
     const QString exe = folder + QStringLiteral("/ps2xRuntime/ps2EntryRunner.exe");
@@ -207,21 +184,18 @@ QVariantMap InstallerBackend::movedBuild() const
     const QString relative = QDir(m_root).relativeFilePath(folder);
     if (relative.startsWith(QStringLiteral("..")) || QDir::isAbsolutePath(relative))
         return none;
-    const QString source = cmakeSourceRoot(folder);
+    const QString source = BuildCache::sourceFolder(folder);
     // The tail is what build.ps1 configures (engine/runtime/PS2Recomp): it identifies a build of this game, and the
     // part before it is the project folder that made it. Another tool's cache is not reported as a moved installation.
-    const QString tail = QStringLiteral("/engine/runtime/PS2Recomp");
-#ifdef Q_OS_WIN
-    const auto pathCase = Qt::CaseInsensitive;
-#else
-    const auto pathCase = Qt::CaseSensitive;
-#endif
-    if (!source.endsWith(tail, pathCase))
+    if (!source.endsWith(BuildCache::sourceTail(), BuildCache::pathCase()))
         return none;
-    if (source.compare(QDir::cleanPath(m_root + tail), pathCase) == 0)
-        return none; // the build in this folder was made here
+    // Made here, or here before the folder was renamed (the cache keeps the old absolute path): either way it is this
+    // installation's build. A copy leaves the original in place, and that one is reported.
+    if (BuildCache::belongsTo(source, m_root))
+        return none;
     return {{QStringLiteral("moved"), true},
-            {QStringLiteral("previous"), QDir::toNativeSeparators(source.left(source.size() - tail.size()))}};
+            {QStringLiteral("previous"), QDir::toNativeSeparators(
+                source.left(source.size() - BuildCache::sourceTail().size()))}};
 }
 
 // Where this installation builds the game, as the setup's Build folder shows it: the recorded folder, the folder this
@@ -285,11 +259,10 @@ QVariantMap InstallerBackend::setBuildRoot(const QString &path)
         return refused(QStringLiteral("long"));
     // CMake refuses a cache configured from another source folder: say so now, as the setup does, instead of failing the
     // next build
-    const QString expected = QDir::cleanPath(m_root + QStringLiteral("/engine/runtime/PS2Recomp"));
     for (const QString &suffix : {QStringLiteral(""), QStringLiteral("-clang"), QStringLiteral("-dev-clang")})
     {
-        const QString source = cmakeSourceRoot(chosen + suffix);
-        if (!source.isEmpty() && source.compare(expected, pathCase) != 0)
+        const QString source = BuildCache::sourceFolder(chosen + suffix);
+        if (!source.isEmpty() && !BuildCache::belongsTo(source, m_root))
             return refused(QStringLiteral("foreign"));
     }
     QDir dir;

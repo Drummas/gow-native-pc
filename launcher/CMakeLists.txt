@@ -112,7 +112,10 @@ if(WIN32)
         qml/idiomas/fr.js qml/idiomas/de.js qml/idiomas/it.js qml/idiomas/ru.js qml/idiomas/zh.js)
 endif()
 
-# Explicit regression target; never included in the player package.
+# Explicit regression targets; never included in the player package.
 add_executable(gow_region_tests EXCLUDE_FROM_ALL ../tools/test/regional_launcher_test.cpp)
 target_include_directories(gow_region_tests PRIVATE src)
 target_link_libraries(gow_region_tests PRIVATE Qt6::Core)
+add_executable(gow_build_cache_tests EXCLUDE_FROM_ALL ../tools/test/build-cache-test.cpp)
+target_include_directories(gow_build_cache_tests PRIVATE src)
+target_link_libraries(gow_build_cache_tests PRIVATE Qt6::Core)

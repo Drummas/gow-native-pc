@@ -1,5 +1,6 @@
 // Machine-local regional builds are separate from the USA generation manifest.
 #pragma once
+#include "build_cache.h"
 #include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QDateTime>
@@ -140,19 +141,15 @@ inline QVariantList read(const QString &root, const QString &game = QStringLiter
             exclude(QStringLiteral("the runner or disc no longer matches its registration (build fingerprint mismatch)"));
             continue;
         }
-        QFile cmake(QFileInfo(runner).absolutePath() + "/../CMakeCache.txt");
-        if (!cmake.open(QIODevice::ReadOnly))
+        // The cache names the folder it was configured from: the registration's source, also under the installation's
+        // previous name when the folder was renamed (BuildCache).
+        const QString source = BuildCache::sourceFolder(QFileInfo(runner).absolutePath() + QStringLiteral("/.."));
+        if (source.isEmpty())
         {
             exclude(QStringLiteral("the build directory is missing its CMake cache"));
             continue;
         }
-        QString source;
-        while (!cmake.atEnd()) {
-            const auto line = cmake.readLine().trimmed();
-            const QByteArray prefix("CMAKE_HOME_DIRECTORY:INTERNAL=");
-            if (line.startsWith(prefix)) source = QString::fromUtf8(line.mid(prefix.size()));
-        }
-        if (!samePath(source, resolveRecord(root, row.value("source").toString())))
+        if (!BuildCache::sameSourceAcrossRename(source, resolveRecord(root, row.value("source").toString()), root))
         {
             exclude(QStringLiteral("the build directory does not belong to this checkout"));
             continue;

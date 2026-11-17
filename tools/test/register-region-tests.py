@@ -74,6 +74,23 @@ experimental_frame_pc = "0x100000"
         self.addCleanup(shutil.rmtree, outside, True)
         self.assertEqual(records.portable(outside / 'runner', self.root), (outside / 'runner').as_posix())
 
+    def test_build_cache_source_follows_a_renamed_installation(self):
+        import records
+        recorded = 'engine/runtime/PS2Recomp'
+        # configured here
+        self.assertTrue(records.source_belongs(self.root / recorded, recorded, self.root))
+        # configured by another copy of the project that still exists: not this installation's build
+        other = Path(tempfile.mkdtemp())
+        (other / 'engine').mkdir(parents=True, exist_ok=True)
+        (other / 'engine/runtime.toml').write_text('commit = "x"\n')
+        self.assertFalse(records.source_belongs(other / recorded, recorded, self.root))
+        self.assertTrue(records.source_belongs(other / recorded, recorded, other))
+        # configured before this folder was renamed (nothing is a project at the old path): still ours
+        previous = Path(tempfile.mkdtemp())
+        self.assertTrue(records.source_belongs(previous / recorded, recorded, self.root))
+        # a source recorded outside the installation cannot have travelled with the rename
+        self.assertFalse(records.source_belongs(previous / recorded, str(other / recorded), self.root))
+
     def test_wrong_elf_preserves_previous_registration(self):
         self.register()
         previous = self.manifest.read_bytes()

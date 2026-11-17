@@ -411,7 +411,7 @@ def gather_fingerprint(ctx: Context) -> dict[str, Any]:
         sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "disc"))
         sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "pipeline"))
         from discfs import text_sha1, pcsx2_crc
-        from records import resolve as resolve_record
+        from records import resolve as resolve_record, source_belongs
         payload = elf.read_bytes()
         actual_text, actual_crc = text_sha1(payload), pcsx2_crc(payload)
         elf_hash, runner_hash = hashlib.sha256(payload).hexdigest(), sha256_file(runner)
@@ -430,7 +430,8 @@ def gather_fingerprint(ctx: Context) -> dict[str, Any]:
         source = next((line.split("=", 1)[1] for line in cache.read_text(encoding="utf-8").splitlines()
                        if line.startswith("CMAKE_HOME_DIRECTORY:INTERNAL=")), "")
         expected_source = build.get("source") or "engine/runtime/PS2Recomp"
-        if not source or Path(source).resolve() != resolve_record(expected_source, ctx.repo).resolve():
+        # source_belongs also accepts the folder's previous name: a renamed installation keeps its build.
+        if not source or not source_belongs(source, expected_source, ctx.repo):
             raise ManagerError("Selected runner belongs to a different source tree", 2)
         build = {**build, "elf_crc": actual_crc, "text_sha1": actual_text}
 
